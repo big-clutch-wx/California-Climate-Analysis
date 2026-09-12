@@ -15,7 +15,10 @@ Water Year (WY) mode implemented to match compare(3).py:
 import os
 import json
 import importlib.util
+import glob
 from pathlib import Path
+
+import duckdb
 
 import pandas as pd
 import streamlit as st
@@ -294,6 +297,316 @@ st.title("🌧️ California Precipitation Analysis")
 if not selected_regions:
     st.warning("Select at least one hydrological region.")
     st.stop()
+
+# ---------------------------------------------------------------------------
+# Memory-efficient Extremes / Records helpers
+# ---------------------------------------------------------------------------
+
+def _sql_ids(matching_ids):
+    return ", ".join(
+        "'" + str(sid).replace("'", "''") + "'"
+        for sid in matching_ids
+    )
+
+
+def run_lightweight_water_year_records(matching_ids, min_valid_days=100):
+    """
+    Find WY records entirely inside DuckDB.
+
+    The comparison-mode engine returns station-level rows plus streak metrics.
+    Extremes only need the station WY total and valid-day count, so reducing
+    immediately to one row per WY keeps the pandas result tiny.
+    """
+    if not glob.glob("daily_*.parquet") or not matching_ids:
+        return None
+
+    ids = _sql_ids(matching_ids)
+
+    sql = f"""
+    WITH daily AS (
+        SELECT
+            station_id,
+            CAST(date AS DATE) AS date,
+            CASE
+                WHEN precip IS NULL
+                     OR TRIM(CAST(precip AS VARCHAR)) IN ('', 'M')
+                    THEN NULL
+                WHEN TRIM(CAST(precip AS VARCHAR)) = 'T'
+                    THEN 0.0
+                ELSE TRY_CAST(
+                    TRIM(
+                        REGEXP_REPLACE(
+                            CAST(precip AS VARCHAR), '[AS]$', ''
+                        )
+                    ) AS DOUBLE
+                )
+            END AS p
+        FROM read_parquet('daily_*.parquet', union_by_name=true)
+        WHERE station_id IN ({ids})
+          AND CAST(date AS DATE) >= DATE '1889-07-01'
+          AND CAST(date AS DATE) <= DATE '2026-06-30'
+    ),
+    station_wy AS (
+        SELECT
+            station_id,
+            CASE
+                WHEN EXTRACT(MONTH FROM date) >= 7
+                    THEN CAST(EXTRACT(YEAR FROM date) AS INTEGER) + 1
+                ELSE CAST(EXTRACT(YEAR FROM date) AS INTEGER)
+            END AS wy_end_year,
+            SUM(p) AS total_precip,
+            COUNT(p) AS valid_days
+        FROM daily
+        WHERE p IS NOT NULL
+        GROUP BY station_id, wy_end_year
+        HAVING COUNT(p) >= {int(min_valid_days)}
+    )
+    SELECT
+        wy_end_year,
+        AVG(total_precip) AS precip,
+        COUNT(*) AS station_count
+    FROM station_wy
+    WHERE wy_end_year BETWEEN 1890 AND 2025
+    GROUP BY wy_end_year
+    ORDER BY wy_end_year
+    """
+
+    with duckdb.connect() as con:
+        return con.execute(sql).df()
+
+
+def run_lightweight_seasonal_records(
+    matching_ids,
+    start_mmdd,
+    end_mmdd,
+    min_valid_ratio=0.50,
+):
+    """
+    Find recurring seasonal records inside DuckDB.
+
+    This preserves compare.py's validity rule (a station must have the
+    required number of valid observations for the occurrence), but returns
+    only one aggregated row per occurrence instead of every station row.
+    """
+    if not glob.glob("daily_*.parquet") or not matching_ids:
+        return None
+
+    ids = _sql_ids(matching_ids)
+    sm, sd = map(int, start_mmdd.split("-"))
+    em, ed = map(int, end_mmdd.split("-"))
+    cross_year = (sm, sd) > (em, ed)
+
+    if cross_year:
+        date_where = f"""
+            (
+                (EXTRACT(MONTH FROM date), EXTRACT(DAY FROM date))
+                    >= ({sm}, {sd})
+                OR
+                (EXTRACT(MONTH FROM date), EXTRACT(DAY FROM date))
+                    <= ({em}, {ed})
+            )
+        """
+        occurrence_year = f"""
+            CASE
+                WHEN (EXTRACT(MONTH FROM date), EXTRACT(DAY FROM date))
+                        >= ({sm}, {sd})
+                    THEN CAST(EXTRACT(YEAR FROM date) AS INTEGER)
+                ELSE CAST(EXTRACT(YEAR FROM date) AS INTEGER) - 1
+            END
+        """
+        first_date = f"DATE '1890-{sm:02d}-{sd:02d}'"
+        last_date = f"DATE '2026-{em:02d}-{ed:02d}'"
+        # Start years 1890-2025 for a cross-year period.
+        occurrence_range = "BETWEEN 1890 AND 2025"
+        from_year = 1889
+        to_year = 2026
+    else:
+        date_where = f"""
+            (EXTRACT(MONTH FROM date), EXTRACT(DAY FROM date))
+                BETWEEN ({sm}, {sd}) AND ({em}, {ed})
+        """
+        occurrence_year = "CAST(EXTRACT(YEAR FROM date) AS INTEGER)"
+        first_date = f"DATE '1890-{sm:02d}-{sd:02d}'"
+        last_date = f"DATE '2026-{em:02d}-{ed:02d}'"
+        occurrence_range = "BETWEEN 1890 AND 2026"
+        from_year = 1890
+        to_year = 2026
+
+    # Match compare.py's day-count calculation, including leap-day effects
+    # when the selected span crosses February.
+    from datetime import datetime
+
+    d1 = datetime(2001, sm, sd)
+    d2 = datetime(2002 if cross_year else 2001, em, ed)
+    total_days = (d2 - d1).days + 1
+    required = max(1, int(total_days * min_valid_ratio))
+
+    sql = f"""
+    WITH daily AS (
+        SELECT
+            station_id,
+            CAST(date AS DATE) AS date,
+            CASE
+                WHEN precip IS NULL
+                     OR TRIM(CAST(precip AS VARCHAR)) IN ('', 'M')
+                    THEN NULL
+                WHEN TRIM(CAST(precip AS VARCHAR)) = 'T'
+                    THEN 0.0
+                ELSE TRY_CAST(
+                    TRIM(
+                        REGEXP_REPLACE(
+                            CAST(precip AS VARCHAR), '[AS]$', ''
+                        )
+                    ) AS DOUBLE
+                )
+            END AS p
+        FROM read_parquet('daily_*.parquet', union_by_name=true)
+        WHERE station_id IN ({ids})
+          AND CAST(date AS DATE) >= DATE '{from_year}-01-01'
+          AND CAST(date AS DATE) <= DATE '{to_year}-12-31'
+          AND {date_where}
+    ),
+    station_occurrence AS (
+        SELECT
+            station_id,
+            {occurrence_year} AS occurrence_year,
+            SUM(p) AS total_precip,
+            COUNT(p) AS valid_days
+        FROM daily
+        WHERE p IS NOT NULL
+        GROUP BY station_id, occurrence_year
+        HAVING COUNT(p) >= {required}
+    )
+    SELECT
+        occurrence_year,
+        AVG(total_precip) AS precip,
+        COUNT(*) AS station_count
+    FROM station_occurrence
+    WHERE occurrence_year {occurrence_range}
+    GROUP BY occurrence_year
+    ORDER BY occurrence_year
+    """
+
+    with duckdb.connect() as con:
+        return con.execute(sql).df()
+
+
+def run_lightweight_rolling_records(
+    matching_ids,
+    window_days,
+    min_valid_ratio=0.70,
+):
+    """
+    Find rolling-N-day records without returning every rolling window.
+
+    DuckDB performs the station-level RANGE window calculation and immediately
+    aggregates by window start/end. Only the candidate record periods reach
+    pandas.
+    """
+    if not glob.glob("daily_*.parquet") or not matching_ids:
+        return None
+
+    ids = _sql_ids(matching_ids)
+    n = int(window_days)
+    required = max(1, int(n * min_valid_ratio))
+
+    sql = f"""
+    WITH daily AS (
+        SELECT
+            station_id,
+            CAST(date AS DATE) AS date,
+            CASE
+                WHEN precip IS NULL
+                     OR TRIM(CAST(precip AS VARCHAR)) IN ('', 'M')
+                    THEN NULL
+                WHEN TRIM(CAST(precip AS VARCHAR)) = 'T'
+                    THEN 0.0
+                ELSE TRY_CAST(
+                    TRIM(
+                        REGEXP_REPLACE(
+                            CAST(precip AS VARCHAR), '[AS]$', ''
+                        )
+                    ) AS DOUBLE
+                )
+            END AS p
+        FROM read_parquet('daily_*.parquet', union_by_name=true)
+        WHERE station_id IN ({ids})
+          AND CAST(date AS DATE) >= DATE '1890-01-01'
+          AND CAST(date AS DATE) <= DATE '2026-12-31'
+          AND precip IS NOT NULL
+    ),
+    rolling AS (
+        SELECT
+            station_id,
+            date - INTERVAL '{n - 1} days' AS period_start,
+            date AS period_end,
+            SUM(p) OVER (
+                PARTITION BY station_id
+                ORDER BY date
+                RANGE BETWEEN INTERVAL '{n - 1} days'
+                    PRECEDING AND CURRENT ROW
+            ) AS total_precip,
+            COUNT(p) OVER (
+                PARTITION BY station_id
+                ORDER BY date
+                RANGE BETWEEN INTERVAL '{n - 1} days'
+                    PRECEDING AND CURRENT ROW
+            ) AS valid_days
+        FROM daily
+        WHERE p IS NOT NULL
+    ),
+    valid_windows AS (
+        SELECT
+            station_id,
+            period_start,
+            period_end,
+            total_precip
+        FROM rolling
+        WHERE valid_days >= {required}
+    ),
+    period_averages AS (
+        SELECT
+            period_start,
+            period_end,
+            AVG(total_precip) AS precip,
+            COUNT(*) AS station_count
+        FROM valid_windows
+        GROUP BY period_start, period_end
+    ),
+    records AS (
+        SELECT
+            'Lowest' AS record_type,
+            period_start,
+            period_end,
+            precip,
+            station_count
+        FROM period_averages
+        QUALIFY ROW_NUMBER() OVER (
+            ORDER BY precip ASC, period_end ASC
+        ) = 1
+
+        UNION ALL
+
+        SELECT
+            'Highest' AS record_type,
+            period_start,
+            period_end,
+            precip,
+            station_count
+        FROM period_averages
+        QUALIFY ROW_NUMBER() OVER (
+            ORDER BY precip DESC, period_end ASC
+        ) = 1
+    )
+    SELECT *
+    FROM records
+    ORDER BY record_type
+    """
+
+    with duckdb.connect() as con:
+        return con.execute(sql).df()
+
+
 
 # ---------------------------------------------------------------------------
 # Comparison Mode
@@ -783,12 +1096,6 @@ if analysis_mode == "Comparison Mode":
 else:
     st.header("Extremes / Records")
 
-    st.markdown(
-        "**Extremes / Records** searches the complete available "
-        "1890–2026 precipitation dataset for the lowest and highest "
-        "average precipitation totals for the selected period definition."
-    )
-
     extreme_type = st.radio(
         "Period type:",
         [
@@ -797,18 +1104,9 @@ else:
             "Rolling N-Day Window",
         ],
         index=0,
-        help=(
-            "These correspond directly to the three period types in "
-            "compare.py's Extremes / Records mode."
-        ),
     )
 
     if extreme_type == "Water Years":
-        st.info(
-            "Records use complete water years only: **WY 1890 through WY 2025**. "
-            "WY 2026 is excluded because it is incomplete."
-        )
-
         run_extremes = st.button(
             "🏆 Search Water-Year Records",
             type="primary",
@@ -816,27 +1114,18 @@ else:
         )
 
     elif extreme_type == "Recurring Seasonal / Custom Calendar Stretch":
-        st.markdown(
-            "Search every occurrence of the same calendar stretch from "
-            "**1890 through 2026**. Cross-year stretches (for example "
-            "**11-12 to 02-18**) run through the following calendar year, "
-            "so their final start year is 2025."
-        )
-
         c1, c2 = st.columns(2)
 
         with c1:
             extreme_start_mmdd = st.text_input(
                 "Start date (MM-DD)",
                 value="11-01",
-                help="Example: 11-12",
             )
 
         with c2:
             extreme_end_mmdd = st.text_input(
                 "End date (MM-DD)",
                 value="02-18",
-                help="Example: 02-18 for a cross-year stretch.",
             )
 
         run_extremes = st.button(
@@ -853,12 +1142,6 @@ else:
             value=30,
             step=1,
             help="Examples: 1, 7, 30, 90, 365.",
-        )
-
-        st.info(
-            "Searches every rolling window from **1890-01-01 through "
-            "2026-12-31**, requiring at least 70% of the window's days "
-            "to contain valid precipitation observations."
         )
 
         run_extremes = st.button(
@@ -883,37 +1166,27 @@ else:
                 st.error("No stations were found inside the selected region(s).")
                 st.stop()
 
-            # ---------------------------------------------------------------
-            # Run the same three extremes engines used by compare.py
-            # ---------------------------------------------------------------
-
             if extreme_type == "Water Years":
-                extreme_years = list(range(1890, 2026))
-
                 with st.spinner(
                     f"Searching {len(regional_ids)} regional stations and "
                     f"{len(statewide_ids)} statewide stations across "
                     "WY 1890–2025..."
                 ):
-                    regional_df = engine.run_duckdb_water_years(
+                    regional_records = run_lightweight_water_year_records(
                         regional_ids,
-                        extreme_years,
                         min_valid_days=100,
                     )
-                    statewide_df = engine.run_duckdb_water_years(
+                    statewide_records = run_lightweight_water_year_records(
                         statewide_ids,
-                        extreme_years,
                         min_valid_days=100,
                     )
 
             elif extreme_type == "Recurring Seasonal / Custom Calendar Stretch":
-                # Validate MM-DD exactly as in compare.py.
                 try:
                     from datetime import datetime
 
                     sm, sd = map(int, extreme_start_mmdd.strip().split("-"))
                     em, ed = map(int, extreme_end_mmdd.strip().split("-"))
-
                     datetime(2001, sm, sd)
                     datetime(2001, em, ed)
 
@@ -923,96 +1196,89 @@ else:
                     st.error("Invalid MM-DD date. Use the format MM-DD.")
                     st.stop()
 
-                cross_year = (sm, sd) > (em, ed)
-                last_start_year = 2025 if cross_year else 2026
-                extreme_years = list(range(1890, last_start_year + 1))
-
                 with st.spinner(
                     f"Searching {len(regional_ids)} regional stations and "
-                    f"{len(statewide_ids)} statewide stations across "
-                    f"{len(extreme_years)} occurrences..."
+                    f"{len(statewide_ids)} statewide stations..."
                 ):
-                    # Extremes mode deliberately matches compare.py:
-                    # 50% minimum valid data and no strict all-year
-                    # consistency requirement.
-                    regional_df = engine.run_duckdb_custom_stretches(
+                    regional_records = run_lightweight_seasonal_records(
                         regional_ids,
                         extreme_start_mmdd,
                         extreme_end_mmdd,
-                        extreme_years,
                         min_valid_ratio=0.50,
-                        strict_consistency=False,
                     )
-                    statewide_df = engine.run_duckdb_custom_stretches(
+                    statewide_records = run_lightweight_seasonal_records(
                         statewide_ids,
                         extreme_start_mmdd,
                         extreme_end_mmdd,
-                        extreme_years,
                         min_valid_ratio=0.50,
-                        strict_consistency=False,
                     )
 
             else:
                 window_days = int(extreme_window_days)
 
                 with st.spinner(
-                    f"Searching every {window_days}-day window across "
-                    "1890-01-01 through 2026-12-31..."
+                    f"Searching {window_days}-day rolling records across "
+                    "1890–2026..."
                 ):
-                    regional_df = engine.run_duckdb_rolling_extremes(
+                    regional_records = run_lightweight_rolling_records(
                         regional_ids,
                         window_days,
                         min_valid_ratio=0.70,
                     )
-                    statewide_df = engine.run_duckdb_rolling_extremes(
+                    statewide_records = run_lightweight_rolling_records(
                         statewide_ids,
                         window_days,
                         min_valid_ratio=0.70,
                     )
 
-                # Make rolling results compatible with the same record
-                # summarization used for the other two period types.
-                for df in (regional_df, statewide_df):
-                    if df is not None and not df.empty:
-                        df["period_label"] = (
-                            df["period_start"].dt.strftime("%Y-%m-%d")
-                            + " to "
-                            + df["period_end"].dt.strftime("%Y-%m-%d")
-                        )
-
-            # ---------------------------------------------------------------
-            # Display helpers
-            # ---------------------------------------------------------------
-
-            def extreme_stats(df):
-                if df is None or df.empty:
+            def get_record_stats(records):
+                if records is None or records.empty:
                     return None
 
-                stats = (
-                    df.groupby("period_label")
-                    .agg(
-                        precip=("total_precip", "mean"),
-                        station_count=("station_id", "count"),
+                if extreme_type == "Water Years":
+                    low = records.loc[records["precip"].idxmin()]
+                    high = records.loc[records["precip"].idxmax()]
+                    return {
+                        "lowest_period": f"WY {int(low['wy_end_year'])}",
+                        "lowest_precip": float(low["precip"]),
+                        "lowest_stations": int(low["station_count"]),
+                        "highest_period": f"WY {int(high['wy_end_year'])}",
+                        "highest_precip": float(high["precip"]),
+                        "highest_stations": int(high["station_count"]),
+                    }
+
+                if extreme_type == "Recurring Seasonal / Custom Calendar Stretch":
+                    low = records.loc[records["precip"].idxmin()]
+                    high = records.loc[records["precip"].idxmax()]
+                    return {
+                        "lowest_period": str(int(low["occurrence_year"])),
+                        "lowest_precip": float(low["precip"]),
+                        "lowest_stations": int(low["station_count"]),
+                        "highest_period": str(int(high["occurrence_year"])),
+                        "highest_precip": float(high["precip"]),
+                        "highest_stations": int(high["station_count"]),
+                    }
+
+                low = records[records["record_type"] == "Lowest"].iloc[0]
+                high = records[records["record_type"] == "Highest"].iloc[0]
+
+                def window_label(row):
+                    return (
+                        f"{pd.Timestamp(row['period_start']).strftime('%Y-%m-%d')} "
+                        f"to "
+                        f"{pd.Timestamp(row['period_end']).strftime('%Y-%m-%d')}"
                     )
-                    .reset_index()
-                )
-
-                if stats.empty:
-                    return None
-
-                low = stats.loc[stats["precip"].idxmin()]
-                high = stats.loc[stats["precip"].idxmax()]
 
                 return {
-                    "lowest_period": str(low["period_label"]),
+                    "lowest_period": window_label(low),
                     "lowest_precip": float(low["precip"]),
                     "lowest_stations": int(low["station_count"]),
-                    "highest_period": str(high["period_label"]),
+                    "highest_period": window_label(high),
                     "highest_precip": float(high["precip"]),
                     "highest_stations": int(high["station_count"]),
                 }
 
-            def display_record_card(title, stats):
+            def show_record(title, stats):
                 st.subheader(title)
 
                 if stats is None:
@@ -1022,135 +1288,77 @@ else:
                 c1, c2 = st.columns(2)
 
                 with c1:
-                    st.metric(
-                        "Lowest",
-                        f'{stats["lowest_precip"]:.2f}"',
-                    )
+                    st.metric("Lowest", f'{stats["lowest_precip"]:.2f}"')
                     st.caption(
                         f'{stats["lowest_period"]} '
                         f'({stats["lowest_stations"]} stations)'
                     )
 
                 with c2:
-                    st.metric(
-                        "Highest",
-                        f'{stats["highest_precip"]:.2f}"',
-                    )
+                    st.metric("Highest", f'{stats["highest_precip"]:.2f}"')
                     st.caption(
                         f'{stats["highest_period"]} '
                         f'({stats["highest_stations"]} stations)'
                     )
 
-            # ---------------------------------------------------------------
-            # Regional records — exactly the same grouping concept as
-            # print_extreme_table() in compare.py.
-            # ---------------------------------------------------------------
-
-            if regional_df is None or regional_df.empty:
-                st.warning("No valid regional periods were found.")
-            else:
-                regional_df = regional_df.copy()
-                regional_df["region"] = regional_df["station_id"].map(
-                    station_region_map
-                )
-
-                st.header("Regional Records")
-
-                for region in selected_regions:
-                    reg = regional_df[
-                        regional_df["region"] == region
-                    ]
-
-                    stats = extreme_stats(reg)
-
-                    if stats is None:
-                        st.subheader(f"{region}")
-                        st.info("No valid periods found.")
-                    else:
-                        display_record_card(region, stats)
-
-            # ---------------------------------------------------------------
-            # Statewide records — same metadata-wide station universe as
-            # compare.py.
-            # ---------------------------------------------------------------
-
-            st.header("Statewide California Records")
-            display_record_card(
-                "All California Stations",
-                extreme_stats(statewide_df),
+            st.header("Regional Records")
+            show_record(
+                ", ".join(selected_regions),
+                get_record_stats(regional_records),
             )
 
-            # ---------------------------------------------------------------
-            # Optional record data tables
-            # ---------------------------------------------------------------
+            st.header("Statewide California Records")
+            show_record(
+                "All California Stations",
+                get_record_stats(statewide_records),
+            )
 
-            if regional_df is not None and not regional_df.empty:
-                with st.expander("View regional record summary data"):
-                    regional_summary_rows = []
+            rows = []
 
-                    for region in selected_regions:
-                        reg = regional_df[
-                            regional_df["region"] == region
-                        ]
-                        stats = extreme_stats(reg)
+            for scope_name, records in [
+                ("Selected region(s)", regional_records),
+                ("All California Stations", statewide_records),
+            ]:
+                stats = get_record_stats(records)
+                if stats is None:
+                    continue
 
-                        if stats is not None:
-                            regional_summary_rows.append(
-                                {
-                                    "Region": region,
-                                    "Lowest Precip": (
-                                        f'{stats["lowest_precip"]:.2f}"'
-                                    ),
-                                    "Lowest Period": stats["lowest_period"],
-                                    "Lowest Stations": stats["lowest_stations"],
-                                    "Highest Precip": (
-                                        f'{stats["highest_precip"]:.2f}"'
-                                    ),
-                                    "Highest Period": stats["highest_period"],
-                                    "Highest Stations": stats["highest_stations"],
-                                }
-                            )
+                rows.append({
+                    "Scope": scope_name,
+                    "Record": "Lowest",
+                    "Precip": f'{stats["lowest_precip"]:.2f}"',
+                    "Period": stats["lowest_period"],
+                    "Stations": stats["lowest_stations"],
+                })
+                rows.append({
+                    "Scope": scope_name,
+                    "Record": "Highest",
+                    "Precip": f'{stats["highest_precip"]:.2f}"',
+                    "Period": stats["highest_period"],
+                    "Stations": stats["highest_stations"],
+                })
 
-                    if regional_summary_rows:
-                        st.dataframe(
-                            pd.DataFrame(regional_summary_rows),
-                            use_container_width=True,
-                            hide_index=True,
-                        )
+            if rows:
+                record_table = pd.DataFrame(rows)
 
-            if statewide_df is not None and not statewide_df.empty:
-                with st.expander("View statewide record summary data"):
-                    statewide_stats = extreme_stats(statewide_df)
+                with st.expander("View record summary data"):
+                    st.dataframe(
+                        record_table,
+                        use_container_width=True,
+                        hide_index=True,
+                    )
 
-                    if statewide_stats is not None:
-                        st.dataframe(
-                            pd.DataFrame(
-                                [
-                                    {
-                                        "Record": "Lowest",
-                                        "Precip": (
-                                            f'{statewide_stats["lowest_precip"]:.2f}"'
-                                        ),
-                                        "Period": statewide_stats["lowest_period"],
-                                        "Stations": statewide_stats["lowest_stations"],
-                                    },
-                                    {
-                                        "Record": "Highest",
-                                        "Precip": (
-                                            f'{statewide_stats["highest_precip"]:.2f}"'
-                                        ),
-                                        "Period": statewide_stats["highest_period"],
-                                        "Stations": statewide_stats["highest_stations"],
-                                    },
-                                ]
-                            ),
-                            use_container_width=True,
-                            hide_index=True,
-                        )
+                    st.download_button(
+                        "📥 Download Record Summary (CSV)",
+                        data=record_table.to_csv(index=False),
+                        file_name="california_extreme_records.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                    )
 
             st.success(
-                "Extremes / Records search complete using the same DuckDB "
-                "analysis functions as compare.py."
+                "Extremes / Records search complete using memory-efficient "
+                "DuckDB aggregation."
             )
 
         except FileNotFoundError as exc:
