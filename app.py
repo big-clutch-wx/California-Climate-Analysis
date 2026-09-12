@@ -374,11 +374,6 @@ if analysis_mode == "Comparison Mode":
             help="Examples: 1980, 1995, 2010 or 2015-2020.",
         )
 
-        st.info(
-            "Stations are always required to have valid data in **every "
-            "selected year**. There is no optional strict-consistency switch."
-        )
-
         show_detail = st.checkbox(
             "Show detailed station breakdown",
             value=True,
