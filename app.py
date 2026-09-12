@@ -359,7 +359,7 @@ def run_lightweight_water_year_records(matching_ids, min_valid_days=100, limit=5
         WHERE p IS NOT NULL
         GROUP BY station_id, wy_end_year
         HAVING COUNT(p) >= {int(min_valid_days)}
-    )
+    ),
     period_averages AS (
         SELECT
             wy_end_year,
@@ -370,20 +370,27 @@ def run_lightweight_water_year_records(matching_ids, min_valid_days=100, limit=5
         GROUP BY wy_end_year
     )
     SELECT
-        CASE WHEN ROW_NUMBER() OVER (
-            ORDER BY precip ASC, wy_end_year ASC
-        ) <= {int(limit)}
-            THEN 'Lowest'
-            ELSE 'Highest'
-        END AS record_type,
+        'Lowest' AS record_type,
         wy_end_year,
         precip,
         station_count
     FROM period_averages
-    QUALIFY
-        ROW_NUMBER() OVER (ORDER BY precip ASC, wy_end_year ASC) <= {int(limit)}
-        OR
-        ROW_NUMBER() OVER (ORDER BY precip DESC, wy_end_year ASC) <= {int(limit)}
+    QUALIFY ROW_NUMBER() OVER (
+        ORDER BY precip ASC, wy_end_year ASC
+    ) <= {int(limit)}
+
+    UNION ALL
+
+    SELECT
+        'Highest' AS record_type,
+        wy_end_year,
+        precip,
+        station_count
+    FROM period_averages
+    QUALIFY ROW_NUMBER() OVER (
+        ORDER BY precip DESC, wy_end_year ASC
+    ) <= {int(limit)}
+
     ORDER BY record_type, precip, wy_end_year
     """
 
@@ -516,7 +523,7 @@ def run_lightweight_seasonal_records(
         WHERE p IS NOT NULL
         GROUP BY station_id, occurrence_year
         HAVING COUNT(p) >= {required}
-    )
+    ),
     period_averages AS (
         SELECT
             occurrence_year,
@@ -527,20 +534,27 @@ def run_lightweight_seasonal_records(
         GROUP BY occurrence_year
     )
     SELECT
-        CASE WHEN ROW_NUMBER() OVER (
-            ORDER BY precip ASC, occurrence_year ASC
-        ) <= {int(limit)}
-            THEN 'Lowest'
-            ELSE 'Highest'
-        END AS record_type,
+        'Lowest' AS record_type,
         occurrence_year,
         precip,
         station_count
     FROM period_averages
-    QUALIFY
-        ROW_NUMBER() OVER (ORDER BY precip ASC, occurrence_year ASC) <= {int(limit)}
-        OR
-        ROW_NUMBER() OVER (ORDER BY precip DESC, occurrence_year ASC) <= {int(limit)}
+    QUALIFY ROW_NUMBER() OVER (
+        ORDER BY precip ASC, occurrence_year ASC
+    ) <= {int(limit)}
+
+    UNION ALL
+
+    SELECT
+        'Highest' AS record_type,
+        occurrence_year,
+        precip,
+        station_count
+    FROM period_averages
+    QUALIFY ROW_NUMBER() OVER (
+        ORDER BY precip DESC, occurrence_year ASC
+    ) <= {int(limit)}
+
     ORDER BY record_type, precip, occurrence_year
     """
 
