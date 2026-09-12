@@ -285,7 +285,6 @@ else:
     comparison_mode = None
 
 st.sidebar.markdown("---")
-st.sidebar.caption(f"Data directory: `{DATA_DIR}`")
 
 
 # ---------------------------------------------------------------------------
