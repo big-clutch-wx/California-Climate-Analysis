@@ -107,7 +107,8 @@ if run_analysis:
                                 union_queries.append(f"""
                                     SELECT 
                                         '{wy}' as water_year,
-                                        id,
+                                        station_id,
+                                        station_name,
                                         COUNT(*) as total_days,
                                         SUM(CASE WHEN "{col_name}" IS NOT NULL THEN 1 ELSE 0 END) as valid_days,
                                         ROUND(AVG(CAST(COALESCE("{col_name}", 0) AS FLOAT)), 2) as avg_value,
@@ -115,7 +116,7 @@ if run_analysis:
                                     FROM read_parquet('{parquet_pattern}', union_by_name=true)
                                     WHERE CAST(date AS DATE) >= DATE '{start_date}' 
                                       AND CAST(date AS DATE) <= DATE '{end_date}'
-                                    GROUP BY id
+                                    GROUP BY station_id, station_name
                                 """)
                             
                             full_query = " UNION ALL ".join(union_queries)
