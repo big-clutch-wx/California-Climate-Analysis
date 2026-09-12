@@ -1189,16 +1189,30 @@ else:
                 st.error("No stations were found inside the selected region(s).")
                 st.stop()
 
+            # Search each selected hydrological region independently.
+            # This prevents multiple selected regions from being combined
+            # into one regional record.
+            region_record_results = {}
+
             if extreme_type == "Water Years":
                 with st.spinner(
-                    f"Searching {len(regional_ids)} regional stations and "
+                    f"Searching {len(selected_regions)} region(s) and "
                     f"{len(statewide_ids)} statewide stations across "
                     "WY 1890–2025..."
                 ):
-                    regional_records = run_lightweight_water_year_records(
-                        regional_ids,
-                        min_valid_days=100,
-                    )
+                    for region in selected_regions:
+                        region_ids = {
+                            sid for sid, mapped_region in station_region_map.items()
+                            if mapped_region == region
+                        }
+                        region_record_results[region] = (
+                            run_lightweight_water_year_records(
+                                region_ids,
+                                min_valid_days=100,
+                            )
+                            if region_ids else None
+                        )
+
                     statewide_records = run_lightweight_water_year_records(
                         statewide_ids,
                         min_valid_days=100,
@@ -1220,15 +1234,24 @@ else:
                     st.stop()
 
                 with st.spinner(
-                    f"Searching {len(regional_ids)} regional stations and "
+                    f"Searching {len(selected_regions)} region(s) and "
                     f"{len(statewide_ids)} statewide stations..."
                 ):
-                    regional_records = run_lightweight_seasonal_records(
-                        regional_ids,
-                        extreme_start_mmdd,
-                        extreme_end_mmdd,
-                        min_valid_ratio=0.50,
-                    )
+                    for region in selected_regions:
+                        region_ids = {
+                            sid for sid, mapped_region in station_region_map.items()
+                            if mapped_region == region
+                        }
+                        region_record_results[region] = (
+                            run_lightweight_seasonal_records(
+                                region_ids,
+                                extreme_start_mmdd,
+                                extreme_end_mmdd,
+                                min_valid_ratio=0.50,
+                            )
+                            if region_ids else None
+                        )
+
                     statewide_records = run_lightweight_seasonal_records(
                         statewide_ids,
                         extreme_start_mmdd,
@@ -1243,11 +1266,20 @@ else:
                     f"Searching {window_days}-day rolling records across "
                     "1890–2026..."
                 ):
-                    regional_records = run_lightweight_rolling_records(
-                        regional_ids,
-                        window_days,
-                        min_valid_ratio=0.70,
-                    )
+                    for region in selected_regions:
+                        region_ids = {
+                            sid for sid, mapped_region in station_region_map.items()
+                            if mapped_region == region
+                        }
+                        region_record_results[region] = (
+                            run_lightweight_rolling_records(
+                                region_ids,
+                                window_days,
+                                min_valid_ratio=0.70,
+                            )
+                            if region_ids else None
+                        )
+
                     statewide_records = run_lightweight_rolling_records(
                         statewide_ids,
                         window_days,
@@ -1325,10 +1357,12 @@ else:
                     )
 
             st.header("Regional Records")
-            show_record(
-                ", ".join(selected_regions),
-                get_record_stats(regional_records),
-            )
+
+            for region in selected_regions:
+                show_record(
+                    region,
+                    get_record_stats(region_record_results.get(region)),
+                )
 
             st.header("Statewide California Records")
             show_record(
@@ -1338,23 +1372,37 @@ else:
 
             rows = []
 
-            for scope_name, records in [
-                ("Selected region(s)", regional_records),
-                ("All California Stations", statewide_records),
-            ]:
-                stats = get_record_stats(records)
+            for region in selected_regions:
+                stats = get_record_stats(region_record_results.get(region))
                 if stats is None:
                     continue
 
                 rows.append({
-                    "Scope": scope_name,
+                    "Scope": region,
                     "Record": "Lowest",
                     "Precip": f'{stats["lowest_precip"]:.2f}"',
                     "Period": stats["lowest_period"],
                     "Stations": stats["lowest_stations"],
                 })
                 rows.append({
-                    "Scope": scope_name,
+                    "Scope": region,
+                    "Record": "Highest",
+                    "Precip": f'{stats["highest_precip"]:.2f}"',
+                    "Period": stats["highest_period"],
+                    "Stations": stats["highest_stations"],
+                })
+
+            stats = get_record_stats(statewide_records)
+            if stats is not None:
+                rows.append({
+                    "Scope": "All California Stations",
+                    "Record": "Lowest",
+                    "Precip": f'{stats["lowest_precip"]:.2f}"',
+                    "Period": stats["lowest_period"],
+                    "Stations": stats["lowest_stations"],
+                })
+                rows.append({
+                    "Scope": "All California Stations",
                     "Record": "Highest",
                     "Precip": f'{stats["highest_precip"]:.2f}"',
                     "Period": stats["highest_period"],
