@@ -42,11 +42,11 @@ APP_DIR = Path(__file__).resolve().parent
 _default_data_dir = Path(r"E:\ACIS") if Path(r"E:\ACIS").exists() else APP_DIR
 DATA_DIR = Path(os.environ.get("ACIS_DATA_DIR", str(_default_data_dir))).resolve()
 
-ENGINE_PATH = APP_DIR / "compare.py"
+ENGINE_PATH = APP_DIR / "compare(3).py"
 
 if not ENGINE_PATH.exists():
     st.error(
-        "compare.py was not found next to app.py. "
+        "compare(3).py was not found next to app.py. "
         "The web app uses its calculation engine so the results stay consistent "
         "with the command-line analysis."
     )
@@ -295,8 +295,8 @@ col1, col2 = st.columns([2, 1])
 with col1:
     years_input = st.text_input(
         "Water years",
-        value="1997, 1994",
-        help="Examples: 1982, 1997, 2015 or 2015-2020",
+        value="1998, 1995",
+        help="Enter WY ending years. Examples: 1983, 1998, 2016 or 2015-2020",
     )
 
 with col2:
@@ -333,13 +333,18 @@ if run_analysis:
     try:
         metadata = load_metadata(str(DATA_DIR))
 
-        years = parse_years_web(years_input)
+        wy_end_years = parse_years_web(years_input)
 
-        if not years:
+        if not wy_end_years:
             st.error("No valid water years were entered.")
             st.stop()
 
-        if any(y > 2025 for y in years):
+        # Standard WY convention: WY 1998 runs 1997-07-01 through 1998-06-30.
+        # compare(3).py's current DuckDB function expects the *starting* year,
+        # so convert the user-entered WY identifier here.
+        years = [y - 1 for y in wy_end_years]
+
+        if any(y > 2025 for y in wy_end_years):
             st.warning(
                 "WY 2026 is incomplete in the current dataset. "
                 "The CLI extremes mode excludes it, but WY comparison mode "
@@ -360,7 +365,7 @@ if run_analysis:
         # Match compare(3).py's threshold behavior:
         # historical selections (<1950) use 100 valid days; otherwise 200.
         effective_min_valid = (
-            100 if any(y < 1950 for y in years) else int(min_valid_days)
+            100 if any(y < 1950 for y in wy_end_years) else int(min_valid_days)
         )
 
         with st.spinner(
@@ -588,7 +593,7 @@ with st.expander("ℹ️ About This Tool"):
         **Current web-app mode:** Full Water Years (July 1–June 30)
 
         The Water Year calculations are performed by the same DuckDB
-        calculation engine used by `compare.py`.
+        calculation engine used by `compare(3).py`.
 
         The results include:
 
