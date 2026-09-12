@@ -1,0 +1,17 @@
+Bugs:
+Guaranteed Additons: 
+11. Put this on an online, accessible website
+ Likely/Probable:
+ 1. Individual station by station comparisons
+ 5. Include monthly regional normals 
+ Tentative/Conditional: 
+ 1. Expand to other Western U.S. states
+ 2. Expand to other hydrological regions
+ 3. Expand to all stations in a given state
+ 4. Include temperature (mean, max, min)
+ Out of scope/far down the road: 
+ 1. All U.S. states
+ 2. All hydrological regions in the U.S.
+ 3. All stations on xmACIS2
+ 4. Incorporate data from other sites (snow depth, SWE, etc, etc)
+ 5. Keep up to date precipitation, snowfall, and temperature statistics for all or select stations on the website
