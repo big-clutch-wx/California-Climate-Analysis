@@ -399,21 +399,27 @@ def run_lightweight_seasonal_records(
     if cross_year:
         date_where = f"""
             (
-                (EXTRACT(MONTH FROM CAST(date AS DATE)),
-             EXTRACT(DAY FROM CAST(date AS DATE)))
-                    >= ({sm}, {sd})
-                OR
-                (EXTRACT(MONTH FROM CAST(date AS DATE)),
-                 EXTRACT(DAY FROM CAST(date AS DATE)))
-                    <= ({em}, {ed})
+                EXTRACT(MONTH FROM CAST(date AS DATE)) > {sm}
+                OR (
+                    EXTRACT(MONTH FROM CAST(date AS DATE)) = {sm}
+                    AND EXTRACT(DAY FROM CAST(date AS DATE)) >= {sd}
+                )
+                OR EXTRACT(MONTH FROM CAST(date AS DATE)) < {em}
+                OR (
+                    EXTRACT(MONTH FROM CAST(date AS DATE)) = {em}
+                    AND EXTRACT(DAY FROM CAST(date AS DATE)) <= {ed}
+                )
             )
         """
         occurrence_year = f"""
             CASE
                 WHEN (
-                    EXTRACT(MONTH FROM CAST(date AS DATE)),
-                    EXTRACT(DAY FROM CAST(date AS DATE))
-                ) >= ({sm}, {sd})
+                    EXTRACT(MONTH FROM CAST(date AS DATE)) > {sm}
+                    OR (
+                        EXTRACT(MONTH FROM CAST(date AS DATE)) = {sm}
+                        AND EXTRACT(DAY FROM CAST(date AS DATE)) >= {sd}
+                    )
+                )
                     THEN CAST(EXTRACT(YEAR FROM CAST(date AS DATE)) AS INTEGER)
                 ELSE CAST(EXTRACT(YEAR FROM CAST(date AS DATE)) AS INTEGER) - 1
             END
@@ -426,9 +432,21 @@ def run_lightweight_seasonal_records(
         to_year = 2026
     else:
         date_where = f"""
-            (EXTRACT(MONTH FROM CAST(date AS DATE)),
-             EXTRACT(DAY FROM CAST(date AS DATE)))
-                BETWEEN ({sm}, {sd}) AND ({em}, {ed})
+            (
+                EXTRACT(MONTH FROM CAST(date AS DATE)) > {sm}
+                OR (
+                    EXTRACT(MONTH FROM CAST(date AS DATE)) = {sm}
+                    AND EXTRACT(DAY FROM CAST(date AS DATE)) >= {sd}
+                )
+            )
+            AND
+            (
+                EXTRACT(MONTH FROM CAST(date AS DATE)) < {em}
+                OR (
+                    EXTRACT(MONTH FROM CAST(date AS DATE)) = {em}
+                    AND EXTRACT(DAY FROM CAST(date AS DATE)) <= {ed}
+                )
+            )
         """
         occurrence_year = "CAST(EXTRACT(YEAR FROM CAST(date AS DATE)) AS INTEGER)"
         first_date = f"DATE '1890-{sm:02d}-{sd:02d}'"
