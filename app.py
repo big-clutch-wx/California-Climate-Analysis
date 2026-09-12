@@ -399,19 +399,23 @@ def run_lightweight_seasonal_records(
     if cross_year:
         date_where = f"""
             (
-                (EXTRACT(MONTH FROM date), EXTRACT(DAY FROM date))
+                (EXTRACT(MONTH FROM CAST(date AS DATE)),
+             EXTRACT(DAY FROM CAST(date AS DATE)))
                     >= ({sm}, {sd})
                 OR
-                (EXTRACT(MONTH FROM date), EXTRACT(DAY FROM date))
+                (EXTRACT(MONTH FROM CAST(date AS DATE)),
+                 EXTRACT(DAY FROM CAST(date AS DATE)))
                     <= ({em}, {ed})
             )
         """
         occurrence_year = f"""
             CASE
-                WHEN (EXTRACT(MONTH FROM date), EXTRACT(DAY FROM date))
-                        >= ({sm}, {sd})
-                    THEN CAST(EXTRACT(YEAR FROM date) AS INTEGER)
-                ELSE CAST(EXTRACT(YEAR FROM date) AS INTEGER) - 1
+                WHEN (
+                    EXTRACT(MONTH FROM CAST(date AS DATE)),
+                    EXTRACT(DAY FROM CAST(date AS DATE))
+                ) >= ({sm}, {sd})
+                    THEN CAST(EXTRACT(YEAR FROM CAST(date AS DATE)) AS INTEGER)
+                ELSE CAST(EXTRACT(YEAR FROM CAST(date AS DATE)) AS INTEGER) - 1
             END
         """
         first_date = f"DATE '1890-{sm:02d}-{sd:02d}'"
@@ -422,10 +426,11 @@ def run_lightweight_seasonal_records(
         to_year = 2026
     else:
         date_where = f"""
-            (EXTRACT(MONTH FROM date), EXTRACT(DAY FROM date))
+            (EXTRACT(MONTH FROM CAST(date AS DATE)),
+             EXTRACT(DAY FROM CAST(date AS DATE)))
                 BETWEEN ({sm}, {sd}) AND ({em}, {ed})
         """
-        occurrence_year = "CAST(EXTRACT(YEAR FROM date) AS INTEGER)"
+        occurrence_year = "CAST(EXTRACT(YEAR FROM CAST(date AS DATE)) AS INTEGER)"
         first_date = f"DATE '1890-{sm:02d}-{sd:02d}'"
         last_date = f"DATE '2026-{em:02d}-{ed:02d}'"
         occurrence_range = "BETWEEN 1890 AND 2026"
@@ -1355,6 +1360,11 @@ else:
                         mime="text/csv",
                         use_container_width=True,
                     )
+
+            st.success(
+                "Extremes / Records search complete using memory-efficient "
+                "DuckDB aggregation."
+            )
 
         except FileNotFoundError as exc:
             st.error(str(exc))
