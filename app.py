@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 California Precipitation & Snowfall Analysis - Streamlit Web App
+Matches compare.py output format
 """
 
 import streamlit as st
@@ -9,11 +10,7 @@ import duckdb
 import glob
 from datetime import datetime
 
-st.set_page_config(
-    page_title="California Climate Analysis",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="California Climate Analysis", layout="wide", initial_sidebar_state="expanded")
 
 st.sidebar.title("🌧️ ❄️ California Climate")
 st.sidebar.markdown("Precipitation & Snowfall Analysis (1950-2026)")
@@ -35,32 +32,18 @@ else:
 selected_regions = st.sidebar.multiselect("Select regions:", all_regions, default=[default_region])
 st.sidebar.markdown("---")
 
-mode = st.sidebar.radio("Select mode:", ["Full Water Years", "Recurring Seasonal Stretch", "Custom Date Ranges"], key="mode_select")
+mode = st.sidebar.radio("Select mode:", ["Full Water Years"], key="mode_select")
 
 st.title("🌧️ ❄️ California Climate Analysis")
 st.markdown(f"**Dataset:** {dataset} | **Mode:** {mode}")
 st.markdown("---")
 st.markdown("### Configure Analysis")
 
-if mode == "Full Water Years":
-    col1, col2 = st.columns(2)
-    with col1:
-        years_input = st.text_input("Water years (e.g., '1980, 1995, 2010' or '2015-2020'):", "2000, 2010, 2020", key="years_input")
-    with col2:
-        min_valid = st.number_input("Min valid days per year:", min_value=1, value=200 if dataset == "Precipitation" else 50)
-
-elif mode == "Recurring Seasonal Stretch":
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        start_date = st.text_input("Start (MM-DD):", "11-01", key="start_date")
-    with col2:
-        end_date = st.text_input("End (MM-DD):", "03-31", key="end_date")
-    with col3:
-        years_input = st.text_input("Years:", "2000, 2010, 2020", key="years_seasonal")
-
-else:
-    st.info("📅 Enter date ranges (one per line, format: YYYY-MM-DD to YYYY-MM-DD)")
-    date_ranges = st.text_area("Date ranges:", "2000-01-01 to 2000-12-31\n2010-01-01 to 2010-12-31", height=100)
+col1, col2 = st.columns(2)
+with col1:
+    years_input = st.text_input("Water years (e.g., '1980, 1995, 2010' or '2015-2020'):", "1997, 1994", key="years_input")
+with col2:
+    min_valid = st.number_input("Min valid days per year:", min_value=1, value=200 if dataset == "Precipitation" else 50)
 
 st.markdown("---")
 run_analysis = st.button("🔍 Run Analysis", use_container_width=True, key="run_btn")
@@ -91,59 +74,106 @@ if run_analysis:
                 parquet_files = glob.glob(parquet_pattern)
                 
                 if not parquet_files:
-                    st.error(f"❌ No parquet files found! Make sure {parquet_pattern} files are in the repo.")
+                    st.error(f"❌ No parquet files found!")
                 else:
-                    if mode == "Full Water Years":
-                        years = parse_years(years_input)
-                        
-                        if not years:
-                            st.error("❌ Invalid year format")
-                        else:
-                            union_queries = []
-                            for wy in years:
-                                start_date = f"{wy}-07-01"
-                                end_date = f"{wy + 1}-06-30"
-                                
-                                union_queries.append(f"""
-                                    SELECT 
-                                        '{wy}' as water_year,
-                                        station_id,
-                                        station_name,
-                                        COUNT(*) as total_days,
-                                        SUM(CASE WHEN "{col_name}" IS NOT NULL AND "{col_name}" != 'M' THEN 1 ELSE 0 END) as valid_days,
-                                        ROUND(AVG(TRY_CAST("{col_name}" AS FLOAT)), 2) as avg_value,
-                                        ROUND(MAX(TRY_CAST("{col_name}" AS FLOAT)), 2) as max_value
-                                    FROM read_parquet('{parquet_pattern}', union_by_name=true)
-                                    WHERE CAST(date AS DATE) >= DATE '{start_date}' 
-                                      AND CAST(date AS DATE) <= DATE '{end_date}'
-                                    GROUP BY station_id, station_name
-                                """)
-                            
-                            full_query = " UNION ALL ".join(union_queries)
-                            
-                            try:
-                                df_res = con.execute(full_query).df()
-                                
-                                if len(df_res) > 0:
-                                    st.success("✅ Analysis Complete!")
-                                    st.markdown("### Results")
-                                    st.dataframe(df_res, use_container_width=True, hide_index=True)
-                                    
-                                    csv = df_res.to_csv(index=False)
-                                    st.download_button(
-                                        label="📥 Download Results (CSV)",
-                                        data=csv,
-                                        file_name=f"analysis_{dataset}_{datetime.now().strftime('%Y%m%d')}.csv",
-                                        mime="text/csv"
-                                    )
-                                else:
-                                    st.warning("⚠️ No data found for selected years and regions")
-                            
-                            except Exception as e:
-                                st.error(f"❌ Query error: {str(e)}")
+                    years = parse_years(years_input)
                     
+                    if not years:
+                        st.error("❌ Invalid year format")
                     else:
-                        st.info("Seasonal and custom date range modes coming soon!")
+                        # Build union query for all years
+                        union_queries = []
+                        for wy in years:
+                            start_date = f"{wy}-07-01"
+                            end_date = f"{wy + 1}-06-30"
+                            
+                            # Format as "97-98" for WY 1998
+                            wy_label = f"{str(wy-1)[-2:]}-{str(wy)[-2:]}"
+                            
+                            union_queries.append(f"""
+                                SELECT 
+                                    '{wy}' as period_id,
+                                    'WY {wy_label}' as period_label,
+                                    station_id,
+                                    station_name,
+                                    CASE 
+                                        WHEN "{col_name}" IS NULL OR "{col_name}" = 'M' THEN NULL
+                                        WHEN "{col_name}" = 'T' THEN 0.0
+                                        ELSE TRY_CAST("{col_name}" AS FLOAT)
+                                    END as parsed_precip
+                                FROM read_parquet('{parquet_pattern}', union_by_name=true)
+                                WHERE CAST(date AS DATE) >= DATE '{start_date}' 
+                                  AND CAST(date AS DATE) <= DATE '{end_date}'
+                            """)
+                        
+                        base_query = " UNION ALL ".join(union_queries)
+                        
+                        full_query = f"""
+                        WITH raw_data AS (
+                            {base_query}
+                        ),
+                        flagged AS (
+                            SELECT *,
+                                CASE WHEN parsed_precip >= 0.01 THEN 1 ELSE 0 END AS is_wet
+                            FROM raw_data
+                            WHERE parsed_precip IS NOT NULL
+                        ),
+                        station_totals AS (
+                            SELECT 
+                                period_id,
+                                period_label,
+                                station_id,
+                                station_name,
+                                SUM(parsed_precip) as total_precip,
+                                MAX(parsed_precip) as max_daily_precip,
+                                COUNT(parsed_precip) as valid_days,
+                                SUM(CASE WHEN parsed_precip >= 0.01 THEN 1 ELSE 0 END) as wet_days
+                            FROM flagged
+                            GROUP BY period_id, period_label, station_id, station_name
+                            HAVING COUNT(parsed_precip) >= {min_valid}
+                        )
+                        SELECT 
+                            period_label,
+                            station_id,
+                            station_name,
+                            ROUND(total_precip, 2) as total_precip,
+                            ROUND(max_daily_precip, 2) as max_daily,
+                            valid_days,
+                            wet_days
+                        FROM station_totals
+                        ORDER BY period_label, total_precip DESC
+                        """
+                        
+                        try:
+                            df_res = con.execute(full_query).df()
+                            
+                            if len(df_res) > 0:
+                                st.success("✅ Analysis Complete!")
+                                st.markdown("### Results by Station")
+                                st.dataframe(df_res, use_container_width=True, hide_index=True)
+                                
+                                # Summary by period
+                                st.markdown("### Summary by Period")
+                                summary = df_res.groupby('period_label').agg({
+                                    'total_precip': 'mean',
+                                    'wet_days': 'mean',
+                                    'station_id': 'count'
+                                }).round(2)
+                                summary.columns = ['Avg Precip (in)', 'Avg Wet Days', 'Station Count']
+                                st.dataframe(summary, use_container_width=True)
+                                
+                                csv = df_res.to_csv(index=False)
+                                st.download_button(
+                                    label="📥 Download Results (CSV)",
+                                    data=csv,
+                                    file_name=f"analysis_{dataset}_{datetime.now().strftime('%Y%m%d')}.csv",
+                                    mime="text/csv"
+                                )
+                            else:
+                                st.warning("⚠️ No data found meeting the minimum valid days threshold")
+                        
+                        except Exception as e:
+                            st.error(f"❌ Query error: {str(e)}")
                 
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
