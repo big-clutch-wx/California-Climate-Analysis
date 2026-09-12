@@ -42,11 +42,11 @@ APP_DIR = Path(__file__).resolve().parent
 _default_data_dir = Path(r"E:\ACIS") if Path(r"E:\ACIS").exists() else APP_DIR
 DATA_DIR = Path(os.environ.get("ACIS_DATA_DIR", str(_default_data_dir))).resolve()
 
-ENGINE_PATH = APP_DIR / "compare(3).py"
+ENGINE_PATH = APP_DIR / "compare.py"
 
 if not ENGINE_PATH.exists():
     st.error(
-        "compare(3).py was not found next to app.py. "
+        "compare.py was not found next to app.py. "
         "The web app uses its calculation engine so the results stay consistent "
         "with the command-line analysis."
     )
