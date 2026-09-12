@@ -783,16 +783,382 @@ if analysis_mode == "Comparison Mode":
 else:
     st.header("Extremes / Records")
 
-    st.info(
-        "The web interface for Extremes / Records will use the same "
-        "1890–2026 DuckDB analysis engine as compare.py."
+    st.markdown(
+        "**Extremes / Records** searches the complete available "
+        "1890–2026 precipitation dataset for the lowest and highest "
+        "average precipitation totals for the selected period definition."
     )
 
-    st.warning(
-        "Comparison Mode is currently the active web-analysis implementation. "
-        "Extremes / Records can be added next without changing the comparison "
-        "engine."
+    extreme_type = st.radio(
+        "Period type:",
+        [
+            "Water Years",
+            "Recurring Seasonal / Custom Calendar Stretch",
+            "Rolling N-Day Window",
+        ],
+        index=0,
+        help=(
+            "These correspond directly to the three period types in "
+            "compare.py's Extremes / Records mode."
+        ),
     )
+
+    if extreme_type == "Water Years":
+        st.info(
+            "Records use complete water years only: **WY 1890 through WY 2025**. "
+            "WY 2026 is excluded because it is incomplete."
+        )
+
+        run_extremes = st.button(
+            "🏆 Search Water-Year Records",
+            type="primary",
+            use_container_width=True,
+        )
+
+    elif extreme_type == "Recurring Seasonal / Custom Calendar Stretch":
+        st.markdown(
+            "Search every occurrence of the same calendar stretch from "
+            "**1890 through 2026**. Cross-year stretches (for example "
+            "**11-12 to 02-18**) run through the following calendar year, "
+            "so their final start year is 2025."
+        )
+
+        c1, c2 = st.columns(2)
+
+        with c1:
+            extreme_start_mmdd = st.text_input(
+                "Start date (MM-DD)",
+                value="11-01",
+                help="Example: 11-12",
+            )
+
+        with c2:
+            extreme_end_mmdd = st.text_input(
+                "End date (MM-DD)",
+                value="02-18",
+                help="Example: 02-18 for a cross-year stretch.",
+            )
+
+        run_extremes = st.button(
+            "🏆 Search Seasonal Records",
+            type="primary",
+            use_container_width=True,
+        )
+
+    else:
+        extreme_window_days = st.number_input(
+            "Rolling window length (days)",
+            min_value=1,
+            max_value=3650,
+            value=30,
+            step=1,
+            help="Examples: 1, 7, 30, 90, 365.",
+        )
+
+        st.info(
+            "Searches every rolling window from **1890-01-01 through "
+            "2026-12-31**, requiring at least 70% of the window's days "
+            "to contain valid precipitation observations."
+        )
+
+        run_extremes = st.button(
+            "🏆 Search Rolling Records",
+            type="primary",
+            use_container_width=True,
+        )
+
+    if run_extremes:
+        try:
+            metadata = load_metadata(str(DATA_DIR))
+
+            station_region_map = build_region_map(
+                tuple(metadata.items()),
+                tuple(selected_regions),
+            )
+
+            regional_ids = set(station_region_map.keys())
+            statewide_ids = set(metadata.keys())
+
+            if not regional_ids:
+                st.error("No stations were found inside the selected region(s).")
+                st.stop()
+
+            # ---------------------------------------------------------------
+            # Run the same three extremes engines used by compare.py
+            # ---------------------------------------------------------------
+
+            if extreme_type == "Water Years":
+                extreme_years = list(range(1890, 2026))
+
+                with st.spinner(
+                    f"Searching {len(regional_ids)} regional stations and "
+                    f"{len(statewide_ids)} statewide stations across "
+                    "WY 1890–2025..."
+                ):
+                    regional_df = engine.run_duckdb_water_years(
+                        regional_ids,
+                        extreme_years,
+                        min_valid_days=100,
+                    )
+                    statewide_df = engine.run_duckdb_water_years(
+                        statewide_ids,
+                        extreme_years,
+                        min_valid_days=100,
+                    )
+
+            elif extreme_type == "Recurring Seasonal / Custom Calendar Stretch":
+                # Validate MM-DD exactly as in compare.py.
+                try:
+                    from datetime import datetime
+
+                    sm, sd = map(int, extreme_start_mmdd.strip().split("-"))
+                    em, ed = map(int, extreme_end_mmdd.strip().split("-"))
+
+                    datetime(2001, sm, sd)
+                    datetime(2001, em, ed)
+
+                    extreme_start_mmdd = f"{sm:02d}-{sd:02d}"
+                    extreme_end_mmdd = f"{em:02d}-{ed:02d}"
+                except (ValueError, TypeError):
+                    st.error("Invalid MM-DD date. Use the format MM-DD.")
+                    st.stop()
+
+                cross_year = (sm, sd) > (em, ed)
+                last_start_year = 2025 if cross_year else 2026
+                extreme_years = list(range(1890, last_start_year + 1))
+
+                with st.spinner(
+                    f"Searching {len(regional_ids)} regional stations and "
+                    f"{len(statewide_ids)} statewide stations across "
+                    f"{len(extreme_years)} occurrences..."
+                ):
+                    # Extremes mode deliberately matches compare.py:
+                    # 50% minimum valid data and no strict all-year
+                    # consistency requirement.
+                    regional_df = engine.run_duckdb_custom_stretches(
+                        regional_ids,
+                        extreme_start_mmdd,
+                        extreme_end_mmdd,
+                        extreme_years,
+                        min_valid_ratio=0.50,
+                        strict_consistency=False,
+                    )
+                    statewide_df = engine.run_duckdb_custom_stretches(
+                        statewide_ids,
+                        extreme_start_mmdd,
+                        extreme_end_mmdd,
+                        extreme_years,
+                        min_valid_ratio=0.50,
+                        strict_consistency=False,
+                    )
+
+            else:
+                window_days = int(extreme_window_days)
+
+                with st.spinner(
+                    f"Searching every {window_days}-day window across "
+                    "1890-01-01 through 2026-12-31..."
+                ):
+                    regional_df = engine.run_duckdb_rolling_extremes(
+                        regional_ids,
+                        window_days,
+                        min_valid_ratio=0.70,
+                    )
+                    statewide_df = engine.run_duckdb_rolling_extremes(
+                        statewide_ids,
+                        window_days,
+                        min_valid_ratio=0.70,
+                    )
+
+                # Make rolling results compatible with the same record
+                # summarization used for the other two period types.
+                for df in (regional_df, statewide_df):
+                    if df is not None and not df.empty:
+                        df["period_label"] = (
+                            df["period_start"].dt.strftime("%Y-%m-%d")
+                            + " to "
+                            + df["period_end"].dt.strftime("%Y-%m-%d")
+                        )
+
+            # ---------------------------------------------------------------
+            # Display helpers
+            # ---------------------------------------------------------------
+
+            def extreme_stats(df):
+                if df is None or df.empty:
+                    return None
+
+                stats = (
+                    df.groupby("period_label")
+                    .agg(
+                        precip=("total_precip", "mean"),
+                        station_count=("station_id", "count"),
+                    )
+                    .reset_index()
+                )
+
+                if stats.empty:
+                    return None
+
+                low = stats.loc[stats["precip"].idxmin()]
+                high = stats.loc[stats["precip"].idxmax()]
+
+                return {
+                    "lowest_period": str(low["period_label"]),
+                    "lowest_precip": float(low["precip"]),
+                    "lowest_stations": int(low["station_count"]),
+                    "highest_period": str(high["period_label"]),
+                    "highest_precip": float(high["precip"]),
+                    "highest_stations": int(high["station_count"]),
+                }
+
+            def display_record_card(title, stats):
+                st.subheader(title)
+
+                if stats is None:
+                    st.info("No valid periods found.")
+                    return
+
+                c1, c2 = st.columns(2)
+
+                with c1:
+                    st.metric(
+                        "Lowest",
+                        f'{stats["lowest_precip"]:.2f}"',
+                    )
+                    st.caption(
+                        f'{stats["lowest_period"]} '
+                        f'({stats["lowest_stations"]} stations)'
+                    )
+
+                with c2:
+                    st.metric(
+                        "Highest",
+                        f'{stats["highest_precip"]:.2f}"',
+                    )
+                    st.caption(
+                        f'{stats["highest_period"]} '
+                        f'({stats["highest_stations"]} stations)'
+                    )
+
+            # ---------------------------------------------------------------
+            # Regional records — exactly the same grouping concept as
+            # print_extreme_table() in compare.py.
+            # ---------------------------------------------------------------
+
+            if regional_df is None or regional_df.empty:
+                st.warning("No valid regional periods were found.")
+            else:
+                regional_df = regional_df.copy()
+                regional_df["region"] = regional_df["station_id"].map(
+                    station_region_map
+                )
+
+                st.header("Regional Records")
+
+                for region in selected_regions:
+                    reg = regional_df[
+                        regional_df["region"] == region
+                    ]
+
+                    stats = extreme_stats(reg)
+
+                    if stats is None:
+                        st.subheader(f"{region}")
+                        st.info("No valid periods found.")
+                    else:
+                        display_record_card(region, stats)
+
+            # ---------------------------------------------------------------
+            # Statewide records — same metadata-wide station universe as
+            # compare.py.
+            # ---------------------------------------------------------------
+
+            st.header("Statewide California Records")
+            display_record_card(
+                "All California Stations",
+                extreme_stats(statewide_df),
+            )
+
+            # ---------------------------------------------------------------
+            # Optional record data tables
+            # ---------------------------------------------------------------
+
+            if regional_df is not None and not regional_df.empty:
+                with st.expander("View regional record summary data"):
+                    regional_summary_rows = []
+
+                    for region in selected_regions:
+                        reg = regional_df[
+                            regional_df["region"] == region
+                        ]
+                        stats = extreme_stats(reg)
+
+                        if stats is not None:
+                            regional_summary_rows.append(
+                                {
+                                    "Region": region,
+                                    "Lowest Precip": (
+                                        f'{stats["lowest_precip"]:.2f}"'
+                                    ),
+                                    "Lowest Period": stats["lowest_period"],
+                                    "Lowest Stations": stats["lowest_stations"],
+                                    "Highest Precip": (
+                                        f'{stats["highest_precip"]:.2f}"'
+                                    ),
+                                    "Highest Period": stats["highest_period"],
+                                    "Highest Stations": stats["highest_stations"],
+                                }
+                            )
+
+                    if regional_summary_rows:
+                        st.dataframe(
+                            pd.DataFrame(regional_summary_rows),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+
+            if statewide_df is not None and not statewide_df.empty:
+                with st.expander("View statewide record summary data"):
+                    statewide_stats = extreme_stats(statewide_df)
+
+                    if statewide_stats is not None:
+                        st.dataframe(
+                            pd.DataFrame(
+                                [
+                                    {
+                                        "Record": "Lowest",
+                                        "Precip": (
+                                            f'{statewide_stats["lowest_precip"]:.2f}"'
+                                        ),
+                                        "Period": statewide_stats["lowest_period"],
+                                        "Stations": statewide_stats["lowest_stations"],
+                                    },
+                                    {
+                                        "Record": "Highest",
+                                        "Precip": (
+                                            f'{statewide_stats["highest_precip"]:.2f}"'
+                                        ),
+                                        "Period": statewide_stats["highest_period"],
+                                        "Stations": statewide_stats["highest_stations"],
+                                    },
+                                ]
+                            ),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+
+            st.success(
+                "Extremes / Records search complete using the same DuckDB "
+                "analysis functions as compare.py."
+            )
+
+        except FileNotFoundError as exc:
+            st.error(str(exc))
+        except Exception as exc:
+            st.error(f"Extremes / Records error: {exc}")
+            with st.expander("Technical error details"):
+                st.exception(exc)
 
 
 # ---------------------------------------------------------------------------
@@ -806,7 +1172,7 @@ with st.expander("ℹ️ About This Tool"):
         """
         ### California Precipitation Analysis
 
-        **Current web-app mode:** Full Water Years (July 1–June 30)
+        **Web-app modes:** Comparison Mode and Extremes / Records
 
         The Water Year calculations are performed by the same DuckDB
         calculation engine used by `compare(3).py`.
