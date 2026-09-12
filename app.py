@@ -1427,10 +1427,6 @@ else:
                         use_container_width=True,
                     )
 
-            st.success(
-                "Extremes / Records search complete
-            )
-
         except FileNotFoundError as exc:
             st.error(str(exc))
         except Exception as exc:
