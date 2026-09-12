@@ -1,6 +1,6 @@
 # California Precipitation & Snowfall Analysis
 
-A comprehensive web tool for analyzing California precipitation and snowfall data from 1950-2026 across multiple regions and time periods.
+A comprehensive web tool for analyzing California precipitation and snowfall data from 1890-2026 across multiple regions and time periods.
 
 🌐 **Live Demo:** [Visit App](https://share.streamlit.io) (deploying soon)
 
