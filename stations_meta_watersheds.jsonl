@@ -1,0 +1,330 @@
+{"id":275,"name":"COLFAX","lat":39.0901,"lon":-120.947,"elev":2373.0,"sids":["041912 2","USC00041912 6","COFC1 7"]}
+{"id":464,"name":"FOLSOM","lat":38.68333,"lon":-121.18333,"elev":249.0,"sids":["043111 2","USC00043111 6"]}
+{"id":468,"name":"REPRESA","lat":38.6944,"lon":-121.1611,"elev":295.0,"sids":["047370 2","USC00047370 6","REPC1 7"]}
+{"id":469,"name":"FOLSOM DAM","lat":38.7,"lon":-121.16667,"elev":350.0,"sids":["043113 2","USC00043113 6","FOLC1 7"]}
+{"id":484,"name":"COOL","lat":38.88333,"lon":-121.01667,"elev":1532.0,"sids":["041985 2","USC00041985 6"]}
+{"id":485,"name":"AUBURN DAM PROJECT","lat":38.88333,"lon":-121.06667,"elev":1270.0,"sids":["040385 2","USC00040385 6"]}
+{"id":532,"name":"COLGATE POWERHOUSE","lat":39.3308,"lon":-121.1922,"elev":595.0,"sids":["041916 2","USC00041916 6","CLGC1 7"]}
+{"id":533,"name":"DOBBINS COLGATE FOREBA","lat":39.33333,"lon":-121.2,"elev":1552.0,"sids":["042458 2","USC00042458 6"]}
+{"id":566,"name":"APPLEGATE 0.5 SE","lat":38.99622,"lon":-120.98596,"elev":1983.0,"sids":["US1CAPC0024 6","CAPC0024 10"]}
+{"id":618,"name":"CAMERON PARK 0.9 SE","lat":38.67197,"lon":-120.97586,"elev":1414.0,"sids":["US1CAED0006 6","CAED0006 10"]}
+{"id":660,"name":"NEVADA CITY 3.4 NNW","lat":39.30674,"lon":-121.03993,"elev":2390.0,"sids":["US1CANV0001 6","CANV0001 10"]}
+{"id":669,"name":"NEVADA CITY 5.4 W","lat":39.26834,"lon":-121.12107,"elev":1982.0,"sids":["US1CANV0022 6","CANV0022 10"]}
+{"id":679,"name":"PENRYN 0.4 SE","lat":38.84717,"lon":-121.1584,"elev":610.0,"sids":["US1CAPC0010 6","CAPC0010 10"]}
+{"id":682,"name":"NEWCASTLE 1.6 SSE","lat":38.851,"lon":-121.123,"elev":800.0,"sids":["US1CAPC0013 6","CAPC0013 10"]}
+{"id":686,"name":"FOLSOM 3.4 ESE","lat":38.65458,"lon":-121.09073,"elev":594.0,"sids":["US1CASA0003 6","CASA0003 10"]}
+{"id":689,"name":"FOLSOM 1.2 SSE","lat":38.66002,"lon":-121.13952,"elev":362.0,"sids":["US1CASA0007 6","CASA0007 10"]}
+{"id":691,"name":"FOLSOM 2.4 SW","lat":38.65128,"lon":-121.17635,"elev":194.0,"sids":["US1CASA0009 6","CASA0009 10"]}
+{"id":700,"name":"FOLSOM 0.6 NE","lat":38.68232,"lon":-121.13753,"elev":399.0,"sids":["US1CASA0029 6","CASA0029 10"]}
+{"id":830,"name":"NEVADA CITY 6.1 W","lat":39.26086,"lon":-121.13538,"elev":2124.0,"sids":["US1CANV0032 6","CANV0032 10"]}
+{"id":856,"name":"DORRIS RANCH CALIFORNIA","lat":39.3036,"lon":-121.1172,"elev":2025.0,"sids":["USR0000CDOR 6"]}
+{"id":876,"name":"PILOT HILL CALIFORNIA","lat":38.8325,"lon":-121.0086,"elev":1200.0,"sids":["USR0000CPIL 6"]}
+{"id":879,"name":"READER RANCH CALIFORNIA","lat":39.3036,"lon":-121.1172,"elev":1968.0,"sids":["USR0000CRDR 6"]}
+{"id":912,"name":"FOLSOM 0.5 W","lat":38.67543,"lon":-121.15557,"elev":335.0,"sids":["US1CASA0031 6","CASA0031 10"]}
+{"id":925,"name":"EL DORADO HILLS 0.7 NNE","lat":38.69537,"lon":-121.0745,"elev":709.0,"sids":["US1CAED0021 6","CAED0021 10"]}
+{"id":926,"name":"EL DORADO HILLS 0.9 NNW","lat":38.69802,"lon":-121.08689,"elev":771.0,"sids":["US1CAED0023 6","CAED0023 10"]}
+{"id":946,"name":"NEWCASTLE 0.4 SSW","lat":38.8684,"lon":-121.13663,"elev":824.0,"sids":["US1CAPC0034 6","CAPC0034 10"]}
+{"id":947,"name":"FOLSOM 1.9 SE","lat":38.65711,"lon":-121.12194,"elev":436.0,"sids":["US1CASA0047 6","CASA0047 10"]}
+{"id":961,"name":"EL DORADO HILLS 1.9 N","lat":38.71347,"lon":-121.08158,"elev":700.0,"sids":["US1CAED0014 6","CAED0014 10"]}
+{"id":1027,"name":"COOL 2.0 ENE","lat":38.89571,"lon":-120.98182,"elev":1666.0,"sids":["US1CAED0029 6","CAED0029 10"]}
+{"id":1060,"name":"PENN VALLEY 4.4 N","lat":39.2603,"lon":-121.1972,"elev":1316.0,"sids":["US1CANV0050 6","CANV0050 10"]}
+{"id":1098,"name":"CAMERON PARK 2.0 SW","lat":38.65876,"lon":-121.0105,"elev":1206.0,"sids":["US1CAED0033 6","CAED0033 10"]}
+{"id":1129,"name":"AUBURN 1.5 NE","lat":38.9075,"lon":-121.05763,"elev":1329.0,"sids":["US1CAPC0054 6","CAPC0054 10"]}
+{"id":1135,"name":"NEVADA CITY 2.0 NNW","lat":39.28806,"lon":-121.03027,"elev":2668.0,"sids":["US1CANV0057 6","CANV0057 10"]}
+{"id":1203,"name":"QUINCY","lat":39.9366,"lon":-120.9475,"elev":3420.0,"sids":["047195 2","USC00047195 6","QCYC1 7"]}
+{"id":1208,"name":"BURNEY","lat":40.8802,"lon":-121.6547,"elev":3198.0,"sids":["24212 1","041214 2","BNY 3","USC00041214 6","BNYC1 7","BNY 7","USW00024212 32"]}
+{"id":1210,"name":"BULLARDS BAR PH","lat":39.41667,"lon":-121.15,"elev":1781.0,"sids":["041180 2","USC00041180 6"]}
+{"id":1214,"name":"CAMPTONVILLE R S","lat":39.45,"lon":-121.05,"elev":2755.0,"sids":["041462 2","USC00041462 6","CMVC1 7"]}
+{"id":1216,"name":"OROVILLE DAM","lat":39.53333,"lon":-121.48333,"elev":845.0,"sids":["046527 2","USC00046527 6"]}
+{"id":1222,"name":"STRAWBERRY VALLEY 2","lat":39.53194,"lon":-121.1611,"elev":3710.0,"sids":["048606 2","USC00048606 6","STYC1 7"]}
+{"id":1225,"name":"FEATHER FALLS","lat":39.6,"lon":-121.26667,"elev":2972.0,"sids":["042994 2","USC00042994 6"]}
+{"id":1226,"name":"LA PORTE","lat":39.68333,"lon":-120.98333,"elev":4984.0,"sids":["044773 2","USC00044773 6"]}
+{"id":1227,"name":"BRUSH CREEK RANGER STATION","lat":39.6949,"lon":-121.3452,"elev":3560.0,"sids":["041130 2","USC00041130 6","BRRC1 7"]}
+{"id":1228,"name":"LAS PLUMAS","lat":39.68333,"lon":-121.48333,"elev":512.0,"sids":["044812 2","USC00044812 6"]}
+{"id":1244,"name":"BUCKS LAKE","lat":39.9,"lon":-121.2,"elev":5203.0,"sids":["041161 2","USC00041161 6"]}
+{"id":1245,"name":"BUCKS CREEK","lat":39.9372,"lon":-121.3147,"elev":1891.0,"sids":["041159 2","USC00041159 6","BUCC1 7"]}
+{"id":1247,"name":"STIRLING CITY RS","lat":39.9041,"lon":-121.528,"elev":3520.0,"sids":["048544 2","USC00048544 6","STRC1 7"]}
+{"id":1250,"name":"QUINCY USFS HELIPORT","lat":39.98333,"lon":-120.95,"elev":3652.0,"sids":["047197 2","USC00047197 6"]}
+{"id":1253,"name":"CARIBOU PH","lat":40.08333,"lon":-121.15,"elev":2992.0,"sids":["041522 2","USC00041522 6"]}
+{"id":1255,"name":"GREENVILLE","lat":40.1408,"lon":-120.9505,"elev":3590.0,"sids":["043621 2","USC00043621 6","GREC1 7"]}
+{"id":1256,"name":"CANYON DAM","lat":40.1705,"lon":-121.0886,"elev":4560.0,"sids":["041497 2","USC00041497 6","CANC1 7"]}
+{"id":1260,"name":"WESTWOOD","lat":40.3,"lon":-121.0,"elev":5072.0,"sids":["24265 1","049599 2","USC00049599 6"]}
+{"id":1261,"name":"WESTWOOD 3 WSW","lat":40.3,"lon":-121.05,"elev":4993.0,"sids":["049600 2","USC00049600 6"]}
+{"id":1262,"name":"CHESTER","lat":40.30209,"lon":-121.24391,"elev":4551.0,"sids":["041700 2","USC00041700 6","CHEC1 7"]}
+{"id":1275,"name":"MANZANITA LAKE","lat":40.5411,"lon":-121.5766,"elev":5750.0,"sids":["045311 2","USC00045311 6","MNZC1 7"]}
+{"id":1282,"name":"BLACKS MOUNTAIN RANCH","lat":40.73333,"lon":-121.25,"elev":5604.0,"sids":["040870 2","USC00040870 6"]}
+{"id":1286,"name":"TURNTABLE CREEK","lat":40.76667,"lon":-122.3,"elev":1070.0,"sids":["049083 2","USC00049083 6"]}
+{"id":1288,"name":"HAT CREEK RANGER STN","lat":40.8,"lon":-121.5,"elev":3353.0,"sids":["043821 2","USC00043821 6"]}
+{"id":1289,"name":"ROUND MOUNTAIN","lat":40.7955,"lon":-121.935,"elev":2100.0,"sids":["047581 2","USC00047581 6","ROMC1 7"]}
+{"id":1290,"name":"MONTGOMERY CREEK","lat":40.81667,"lon":-121.93333,"elev":2103.0,"sids":["045809 2","USC00045809 6"]}
+{"id":1291,"name":"ROUND MOUNTAIN","lat":40.81667,"lon":-121.93333,"elev":2103.0,"sids":["047580 2","USC00047580 6"]}
+{"id":1294,"name":"LITTLE VALLEY","lat":40.88333,"lon":-121.18333,"elev":4173.0,"sids":["044988 2","USC00044988 6"]}
+{"id":1295,"name":"HATCHET MOUNTAIN MNTNC STN","lat":40.85,"lon":-121.76667,"elev":4373.0,"sids":["043817 2","USC00043817 6"]}
+{"id":1296,"name":"BUCKHORN","lat":40.87972,"lon":-121.93168,"elev":3700.0,"sids":["041149 2","USC00041149 6","BUKC1 7"]}
+{"id":1297,"name":"LAKESHORE 2","lat":40.86667,"lon":-122.38333,"elev":1079.0,"sids":["044709 2","USC00044709 6"]}
+{"id":1300,"name":"HAT CREEK","lat":40.9316,"lon":-121.5433,"elev":3015.0,"sids":["043824 2","USC00043824 6","HATC1 7"]}
+{"id":1301,"name":"PIT RIVER PH 5","lat":40.9869,"lon":-121.9772,"elev":1458.0,"sids":["046946 2","USC00046946 6","PRPC1 7"]}
+{"id":1302,"name":"VOLLMERS","lat":40.95,"lon":-122.45,"elev":1342.0,"sids":["049386 2","USC00049386 6"]}
+{"id":1303,"name":"DELTA","lat":40.95,"lon":-122.41667,"elev":1171.0,"sids":["042379 2","USC00042379 6"]}
+{"id":1305,"name":"PIT RIVER P H 1","lat":41.0,"lon":-121.5,"elev":2880.0,"sids":["046944 2","USC00046944 6","PTRC1 7"]}
+{"id":1306,"name":"FALL RIVER MILLS","lat":41.008,"lon":-121.435,"elev":3300.0,"sids":["042964 2","USC00042964 6","FMLC1 7"]}
+{"id":1307,"name":"GIBSON HIGHWAY MNT STN","lat":41.01667,"lon":-122.4,"elev":1650.0,"sids":["043405 2","USC00043405 6"]}
+{"id":1313,"name":"BIEBER","lat":41.1208,"lon":-121.1347,"elev":4125.0,"sids":["040731 2","USC00040731 6","BIBC1 7"]}
+{"id":1314,"name":"DANA 2 SE","lat":41.1,"lon":-121.51667,"elev":3323.0,"sids":["042269 2","USC00042269 6"]}
+{"id":1315,"name":"ADIN RANGER STATION","lat":41.19334,"lon":-120.94458,"elev":4202.0,"sids":["040029 2","USC00040029 6","ADNC1 7"]}
+{"id":1316,"name":"POTTERS SAWMILL","lat":41.23333,"lon":-121.21667,"elev":4213.0,"sids":["047106 2","USC00047106 6"]}
+{"id":1317,"name":"LOOKOUT 3 WSW","lat":41.2,"lon":-121.2,"elev":4183.0,"sids":["045093 2","USC00045093 6"]}
+{"id":1318,"name":"DAY","lat":41.21151,"lon":-121.37383,"elev":3653.0,"sids":["042306 2","USC00042306 6","DAYC1 7"]}
+{"id":1319,"name":"DUNSMUIR TREATMENT PL","lat":41.1831,"lon":-122.28167,"elev":2169.0,"sids":["042574 2","USC00042574 6","DUNC1 7"]}
+{"id":1320,"name":"DUNSMUIR","lat":41.21667,"lon":-122.26667,"elev":2421.0,"sids":["042572 2","USC00042572 6"]}
+{"id":1321,"name":"MCCLOUD","lat":41.25171,"lon":-122.13827,"elev":3233.0,"sids":["045449 2","USC00045449 6","MCLC1 7"]}
+{"id":1326,"name":"CANBY 11SW","lat":41.36667,"lon":-121.05,"elev":4505.0,"sids":["041475 2","USC00041475 6"]}
+{"id":1327,"name":"MOUNT SHASTA SKI BOWL","lat":41.36667,"lon":-122.2,"elev":7844.0,"sids":["045980 2","USC00045980 6"]}
+{"id":1334,"name":"TULELAKE INSPECTION STN","lat":41.6,"lon":-121.2,"elev":4413.0,"sids":["049057 2"]}
+{"id":1352,"name":"CAMPTONVILLE 1SW","lat":39.4397,"lon":-121.07115,"elev":2500.0,"sids":["041460 2","CTVC1 7"]}
+{"id":1364,"name":"LAKEHEAD","lat":40.8988,"lon":-122.3913,"elev":1398.0,"sids":["044683 2","USC00044683 6","LDHC1 7"]}
+{"id":1367,"name":"MOUNT SHASTA","lat":41.31489,"lon":-122.31712,"elev":3553.0,"sids":["24215 1","045983 2","MHS 3","KMHS 5","USW00024215 6","USC00045983 6","MHS 7","USW00024215 32"]}
+{"id":1368,"name":"MOUNT SHASTA AP","lat":41.28333,"lon":-122.3,"elev":3581.0,"sids":["24215 1","045988 2","USW00024215 32"]}
+{"id":1399,"name":"MOUNT SHASTA","lat":41.32175,"lon":-122.31725,"elev":3613.0,"sids":["045983 2","USC00045983 6","MHSC1 7"]}
+{"id":1469,"name":"ASH CREEK CALIFORNIA","lat":41.2769,"lon":-121.9794,"elev":3200.0,"sids":["USR0000CASC 6"]}
+{"id":1477,"name":"BOGARD R.S. CALIFORNIA","lat":40.5981,"lon":-121.0831,"elev":5650.0,"sids":["USR0000CBOG 6"]}
+{"id":1493,"name":"JARBO GAP CALIFORNIA","lat":39.7358,"lon":-121.4889,"elev":2490.0,"sids":["USR0000CJAR 6"]}
+{"id":1494,"name":"JORDAN CREEK CALIFORNIA","lat":39.7833,"lon":-121.3667,"elev":4400.0,"sids":["USR0000CJOR 6"]}
+{"id":1498,"name":"LADDER BUTTE CALIFORNIA","lat":40.8072,"lon":-121.2967,"elev":5750.0,"sids":["USR0000CLDR 6"]}
+{"id":1501,"name":"MANZANITA LAKE CALIFORNIA","lat":40.54,"lon":-121.5803,"elev":5660.0,"sids":["USR0000CMAN 6"]}
+{"id":1503,"name":"MT. SHASTA CALIFORNIA","lat":41.3156,"lon":-122.3156,"elev":null,"sids":["USR0000CMS2 6"]}
+{"id":1506,"name":"OAK MOUNTAIN CALIFORNIA","lat":41.0064,"lon":-121.9833,"elev":1700.0,"sids":["USR0000COAM 6"]}
+{"id":1508,"name":"PIKE COUNTY LOOKOUT CALIFORNIA","lat":39.475,"lon":-121.2025,"elev":3714.0,"sids":["USR0000CPIK 6"]}
+{"id":1510,"name":"QUINCY RD CALIFORNIA","lat":39.9733,"lon":-120.9419,"elev":3500.0,"sids":["USR0000CQUI 6"]}
+{"id":1513,"name":"ROUND MOUNTAIN","lat":41.4272,"lon":-121.4639,"elev":5258.0,"sids":["USR0000CROU 6"]}
+{"id":1519,"name":"SIMS CALIFORNIA","lat":41.075,"lon":-122.3733,"elev":2400.0,"sids":["USR0000CSIM 6"]}
+{"id":1521,"name":"SOLDIER MOUNTAIN CALIFORNIA","lat":40.9258,"lon":-121.5856,"elev":3710.0,"sids":["USR0000CSOL 6"]}
+{"id":1523,"name":"SUGARLOAF (SHF) CALIFORNIA","lat":40.9167,"lon":-122.4383,"elev":4200.0,"sids":["USR0000CSUF 6"]}
+{"id":1525,"name":"TIMBER MOUNTAIN CALIFORNIA","lat":41.6294,"lon":-121.2981,"elev":4960.0,"sids":["USR0000CTIM 6"]}
+{"id":1543,"name":"CHESTER 0.9 NNE","lat":40.31135,"lon":-121.22494,"elev":4532.0,"sids":["US1CAPM0003 6","CAPM0003 10"]}
+{"id":1549,"name":"MOUNT SHASTA 1.7 SSE","lat":41.29877,"lon":-122.30313,"elev":3593.0,"sids":["US1CASK0011 6","CASK0011 10"]}
+{"id":1558,"name":"OROVILLE 4.6 ENE","lat":39.53114,"lon":-121.48859,"elev":394.0,"sids":["US1CABT0013 6","CABT0013 10"]}
+{"id":1559,"name":"MEADOW VALLEY 5.6 WSW","lat":39.91909,"lon":-121.10013,"elev":4438.0,"sids":["US1CAPM0002 6","CAPM0002 10"]}
+{"id":1581,"name":"MCARTHUR 16.0 SE","lat":40.88955,"lon":-121.17813,"elev":4178.0,"sids":["US1CALS0006 6","CALS0006 10"]}
+{"id":1593,"name":"MOUNT SHASTA 0.8 ESE","lat":41.31835,"lon":-122.29942,"elev":3753.0,"sids":["US1CASK0021 6","CASK0021 10"]}
+{"id":1597,"name":"MOUNT SHASTA 0.9 NNE","lat":41.33318,"lon":-122.30623,"elev":3917.0,"sids":["US1CASK0024 6","CASK0024 10"]}
+{"id":1631,"name":"CHESTER 0.6 SSE","lat":40.29269,"lon":-121.22808,"elev":4513.0,"sids":["US1CAPM0015 6","CAPM0015 10"]}
+{"id":1997,"name":"WELDON 1 WSW","lat":35.66667,"lon":-118.3,"elev":2680.0,"sids":["049512 2","USC00049512 6"]}
+{"id":2000,"name":"GREENHORN MTN PARK","lat":35.73333,"lon":-118.55,"elev":6101.0,"sids":["043599 2","USC00043599 6"]}
+{"id":2004,"name":"KERN RIVER PH 3","lat":35.7831,"lon":-118.4389,"elev":2703.0,"sids":["044523 2","USC00044523 6","KVLC1 7"]}
+{"id":2007,"name":"POSEY 4 ENE","lat":35.83333,"lon":-118.61667,"elev":5492.0,"sids":["047095 2","USC00047095 6"]}
+{"id":2016,"name":"KERN RIVER INTAKE 3","lat":35.95,"lon":-118.48333,"elev":3652.0,"sids":["044518 2","USC00044518 6"]}
+{"id":2017,"name":"JOHNSONDALE","lat":35.96667,"lon":-118.53333,"elev":4682.0,"sids":["044389 2","USC00044389 6"]}
+{"id":2026,"name":"SPRINGVILLE R S","lat":36.14222,"lon":-118.81139,"elev":1050.0,"sids":["048460 2","USC00048460 6","SVLC1 7"]}
+{"id":2030,"name":"SPRINGVILLE 7 ENE","lat":36.16667,"lon":-118.7,"elev":2470.0,"sids":["048455 2","USC00048455 6"]}
+{"id":2031,"name":"CAMP WISHON","lat":36.18333,"lon":-118.66667,"elev":3802.0,"sids":["041470 2","USC00041470 6"]}
+{"id":2032,"name":"SPRINGVILLE 3 ENE","lat":36.15,"lon":-118.76667,"elev":1460.0,"sids":["048453 2","USC00048453 6"]}
+{"id":2035,"name":"SPRINGVILLE TULE HD","lat":36.1933,"lon":-118.6567,"elev":4070.0,"sids":["048463 2","USC00048463 6","SPNC1 7"]}
+{"id":2047,"name":"ASH MOUNTAIN","lat":36.4914,"lon":-118.8253,"elev":1708.0,"sids":["040343 2","USC00040343 6","ASHC1 7"]}
+{"id":2048,"name":"THREE RIVERS ED PH 2","lat":36.46667,"lon":-118.88333,"elev":951.0,"sids":["048914 2","USC00048914 6"]}
+{"id":2049,"name":"THREE RIVERS EDISON PH 1","lat":36.465,"lon":-118.8619,"elev":1140.0,"sids":["048917 2","USC00048917 6","TREC1 7"]}
+{"id":2062,"name":"WOFFORD HEIGHTS KERNVILLE","lat":35.71667,"lon":-118.45,"elev":2733.0,"sids":["93166 1","049754 2","044527 2","USC00049754 6","USC00044527 6"]}
+{"id":2088,"name":"THREE RIVERS MUSEUM","lat":36.45111,"lon":-118.89611,"elev":856.0,"sids":["048919 2","RTMC1 7"]}
+{"id":2099,"name":"ONYX 2.8 ENE","lat":35.7022,"lon":-118.1739,"elev":3039.0,"sids":["US1CAKN0013 6","CAKN0013 10"]}
+{"id":2119,"name":"THREE RIVERS 3.5 NE","lat":36.46771,"lon":-118.85394,"elev":1430.0,"sids":["US1CATL0009 6","CATL0009 10"]}
+{"id":2134,"name":"THREE RIVERS 1.7 NE","lat":36.4584,"lon":-118.8858,"elev":1010.0,"sids":["US1CATL0011 6","CATL0011 10"]}
+{"id":2149,"name":"BLACKROCK CALIFORNIA","lat":36.0931,"lon":-118.2603,"elev":8200.0,"sids":["USR0000CBRK 6"]}
+{"id":2154,"name":"CASE MOUNTAIN CALIFORNIA","lat":36.4108,"lon":-118.8092,"elev":6450.0,"sids":["USR0000CCMO 6"]}
+{"id":2163,"name":"JOHNSONDALE CALIFORNIA","lat":35.9717,"lon":-118.545,"elev":4700.0,"sids":["USR0000CJOH 6"]}
+{"id":2164,"name":"KERNVILLE CALIFORNIA","lat":35.755,"lon":-118.4167,"elev":2720.0,"sids":["USR0000CKER 6"]}
+{"id":2172,"name":"MILO CALIFORNIA","lat":36.2314,"lon":-118.8689,"elev":1923.0,"sids":["USR0000CMIO 6"]}
+{"id":2175,"name":"OAK OPENING CALIFORNIA","lat":36.1753,"lon":-118.7017,"elev":3240.0,"sids":["USR0000COKO 6"]}
+{"id":2181,"name":"RATTLESNAKE CALIFORNIA","lat":36.4069,"lon":-118.4217,"elev":8600.0,"sids":["USR0000CRTL 6"]}
+{"id":2194,"name":"WOFFORD HEIGHTS CALIFORNIA","lat":35.7217,"lon":-118.4989,"elev":3150.0,"sids":["USR0000CWOF 6"]}
+{"id":2195,"name":"WOLVERTON CALIFORNIA","lat":36.445,"lon":-118.7033,"elev":5240.0,"sids":["USR0000CWOL 6"]}
+{"id":2206,"name":"SPRINGVILLE 1.4 SSW","lat":36.1113,"lon":-118.8248,"elev":937.0,"sids":["US1CATL0017 6","CATL0017 10"]}
+{"id":2222,"name":"SOUTH LAKE F.S","lat":35.6466,"lon":-118.3608,"elev":2654.0,"sids":["048407 2","USC00048407 6","WSLC1 7"]}
+{"id":2235,"name":"Tule River","lat":36.05085,"lon":-118.7223,"elev":2429.0,"sids":["3051 19"]}
+{"id":2287,"name":"ELECTRA P H","lat":38.33056,"lon":-120.67056,"elev":715.0,"sids":["042728 2","USC00042728 6","ELEC1 7"]}
+{"id":2288,"name":"LAKE SPAULDING","lat":39.31833,"lon":-120.63917,"elev":5156.0,"sids":["044713 2","USC00044713 6","LSPC1 7"]}
+{"id":2291,"name":"YOSEMITE PARK HEADQUARTERS","lat":37.75027,"lon":-119.58972,"elev":4018.0,"sids":["049855 2","USC00049855 6","YPQC1 7"]}
+{"id":2293,"name":"GIANT FOREST","lat":36.56667,"lon":-118.76667,"elev":6414.0,"sids":["043397 2","USC00043397 6"]}
+{"id":2294,"name":"LODGEPOLE","lat":36.6044,"lon":-118.7325,"elev":6735.0,"sids":["045026 2","045028 2","USC00045026 6","USC00045028 6","LDGC1 7"]}
+{"id":2299,"name":"GRANT GROVE","lat":36.73751,"lon":-118.96197,"elev":6580.0,"sids":["043551 2","USC00043551 6","GRGC1 7"]}
+{"id":2302,"name":"CEDAR GROVE","lat":36.78333,"lon":-118.66667,"elev":4652.0,"sids":["041609 2","USC00041609 6"]}
+{"id":2308,"name":"BALCH POWER HOUSE","lat":36.9092,"lon":-119.0883,"elev":1735.0,"sids":["040449 2","USC00040449 6","DNPC1 7"]}
+{"id":2311,"name":"WISHON DAM","lat":37.00694,"lon":-118.98389,"elev":6550.0,"sids":["049748 2","WSHC1 7"]}
+{"id":2313,"name":"MEADOW LAKE","lat":37.08333,"lon":-119.43333,"elev":4482.0,"sids":["045496 2","USC00045496 6"]}
+{"id":2314,"name":"AUBERRY 2 NW","lat":37.0919,"lon":-119.5128,"elev":2090.0,"sids":["040379 2","USC00040379 6","ABYC1 7"]}
+{"id":2320,"name":"HUNTINGTON LAKE","lat":37.2275,"lon":-119.22056,"elev":7020.0,"sids":["044176 2","USC00044176 6","HNTC1 7"]}
+{"id":2321,"name":"BIG CREEK PH 1","lat":37.2064,"lon":-119.2419,"elev":4878.0,"sids":["040755 2","USC00040755 6","BCRC1 7"]}
+{"id":2322,"name":"NORTH FORK RS","lat":37.2329,"lon":-119.5097,"elev":2645.0,"sids":["046252 2","USC00046252 6","NOFC1 7"]}
+{"id":2326,"name":"FLORENCE LAKE","lat":37.27389,"lon":-118.97333,"elev":7325.0,"sids":["043093 2","USC00043093 6","FLOC1 7"]}
+{"id":2331,"name":"CENTRAL CAMP","lat":37.35,"lon":-119.48333,"elev":5364.0,"sids":["041630 2","USC00041630 6"]}
+{"id":2338,"name":"FISH CAMP","lat":37.48333,"lon":-119.63333,"elev":5125.0,"sids":["043069 2","USC00043069 6"]}
+{"id":2339,"name":"CEDAR POINT RANCH","lat":37.46667,"lon":-119.73333,"elev":3232.0,"sids":["041611 2","USC00041611 6"]}
+{"id":2343,"name":"SO ENTRANCE YOSEMITE N.P.","lat":37.5122,"lon":-119.6331,"elev":5047.0,"sids":["048380 2","USC00048380 6","YNPC1 7"]}
+{"id":2348,"name":"WAWONA RANGER STATION","lat":37.54,"lon":-119.65222,"elev":3985.0,"sids":["049482 2","USC00049482 6","WAWC1 7"]}
+{"id":2351,"name":"DUDLEYS","lat":37.75,"lon":-120.1,"elev":3002.0,"sids":["042539 2","USC00042539 6"]}
+{"id":2352,"name":"CROCKER STN","lat":37.8,"lon":-119.9,"elev":4705.0,"sids":["042173 2","USC00042173 6"]}
+{"id":2353,"name":"GROVELAND RS","lat":37.823,"lon":-120.0983,"elev":3145.0,"sids":["043672 2","049065 2","USC00043672 6","USC00049065 6","GRVC1 7"]}
+{"id":2354,"name":"GROVELAND 2","lat":37.8444,"lon":-120.2258,"elev":2800.0,"sids":["043669 2","USC00043669 6","GROC1 7"]}
+{"id":2355,"name":"GROVELAND","lat":37.83333,"lon":-120.21667,"elev":2802.0,"sids":["043666 2","USC00043666 6"]}
+{"id":2358,"name":"TUOLUMNE MEADOWS R.S.","lat":37.8769,"lon":-119.3436,"elev":8694.0,"sids":["049063 2","USC00049063 6","TLUC1 7"]}
+{"id":2359,"name":"MATHER","lat":37.885,"lon":-119.8561,"elev":4510.0,"sids":["045400 2","USC00045400 6","MATC1 7"]}
+{"id":2363,"name":"HETCH HETCHY","lat":37.9613,"lon":-119.783,"elev":3870.0,"sids":["043939 2","USC00043939 6","HETC1 7"]}
+{"id":2364,"name":"LAKE ELEANOR","lat":37.96667,"lon":-119.88333,"elev":4662.0,"sids":["044679 2","USC00044679 6"]}
+{"id":2365,"name":"CHERRY VALLEY DAM","lat":37.9747,"lon":-119.9161,"elev":4765.0,"sids":["041697 2","USC00041697 6","CHVC1 7"]}
+{"id":2366,"name":"SONORA","lat":37.9672,"lon":-120.3872,"elev":1675.0,"sids":["048353 2","USC00048353 6","SONC1 7"]}
+{"id":2367,"name":"NEW MELONES DAM","lat":37.95,"lon":-120.53333,"elev":775.0,"sids":["046172 2","USC00046172 6","NEMC1 7"]}
+{"id":2369,"name":"STANISLAUS PH","lat":38.13333,"lon":-120.36667,"elev":1060.0,"sids":["048499 2","USC00048499 6"]}
+{"id":2370,"name":"COLD SPRINGS CHALET","lat":38.16667,"lon":-120.05,"elev":5745.0,"sids":["041906 2","USC00041906 6"]}
+{"id":2372,"name":"LONG BARN EXPERMENT STN","lat":38.18333,"lon":-120.01667,"elev":5203.0,"sids":["045078 2","USC00045078 6"]}
+{"id":2374,"name":"CALAVERAS RANGER STN","lat":38.2,"lon":-120.36667,"elev":3360.0,"sids":["041280 2","USC00041280 6"]}
+{"id":2375,"name":"HUNTERS DAM","lat":38.2,"lon":-120.36667,"elev":3222.0,"sids":["044170 2","USC00044170 6"]}
+{"id":2378,"name":"PINECREST SUMMIT RS","lat":38.1869,"lon":-120.0055,"elev":5600.0,"sids":["046893 2","PSTC1 7"]}
+{"id":2379,"name":"CALAVERAS BIG TREES","lat":38.2769,"lon":-120.3113,"elev":4695.0,"sids":["041277 2","USC00041277 6","ARNC1 7"]}
+{"id":2382,"name":"DONNELLS DAM","lat":38.33333,"lon":-119.96667,"elev":4843.0,"sids":["042465 2","USC00042465 6"]}
+{"id":2383,"name":"WEST POINT 3 SW","lat":38.38333,"lon":-120.56667,"elev":2372.0,"sids":["049583 2","USC00049583 6"]}
+{"id":2386,"name":"WEST POINT","lat":38.3775,"lon":-120.5452,"elev":2775.0,"sids":["049582 2","USC00049582 6","WSTC1 7"]}
+{"id":2387,"name":"TIGER CREEK PH","lat":38.44611,"lon":-120.49917,"elev":2355.0,"sids":["048928 2","USC00048928 6","TIGC1 7"]}
+{"id":2388,"name":"PLYMOUTH","lat":38.48333,"lon":-120.85,"elev":1102.0,"sids":["047000 2","USC00047000 6"]}
+{"id":2390,"name":"SALT SPRINGS PWR HOUSE","lat":38.50056,"lon":-120.21889,"elev":3700.0,"sids":["047689 2","USC00047689 6","SPGC1 7"]}
+{"id":2391,"name":"FIDDLETOWN DEXTER RCH","lat":38.5251,"lon":-120.69817,"elev":2170.0,"sids":["043038 2","USC00043038 6","FDDC1 7"]}
+{"id":2394,"name":"GRIZZLY FLATS","lat":38.63333,"lon":-120.51667,"elev":3862.0,"sids":["043649 2","USC00043649 6"]}
+{"id":2396,"name":"SHINGLE SPRINGS","lat":38.66667,"lon":-120.91667,"elev":1381.0,"sids":["048173 2","USC00048173 6"]}
+{"id":2398,"name":"TWIN LAKES","lat":38.70861,"lon":-120.04028,"elev":8000.0,"sids":["049105 2","USC00049105 6","TWLC1 7"]}
+{"id":2399,"name":"PLACERVILLE IFG","lat":38.73333,"lon":-120.73333,"elev":2755.0,"sids":["046962 2","USC00046962 6","PVIC1 7"]}
+{"id":2400,"name":"PLACERVILLE","lat":38.6955,"lon":-120.8244,"elev":1850.0,"sids":["046960 2","USC00046960 6","PLCC1 7"]}
+{"id":2401,"name":"PLACERVILLE DISP. PLANT","lat":38.7311,"lon":-120.8469,"elev":1560.0,"sids":["046964 2","046963 2","USC00046963 6","PLDC1 7"]}
+{"id":2403,"name":"PACIFIC HOUSE","lat":38.7583,"lon":-120.503,"elev":3450.0,"sids":["046597 2","USC00046597 6","PHSC1 7","PCHC1 7"]}
+{"id":2404,"name":"MOUNT DANAHER","lat":38.75,"lon":-120.66667,"elev":3412.0,"sids":["045909 2","USC00045909 6"]}
+{"id":2407,"name":"KYBURZ STRAWBERRY","lat":38.8,"lon":-120.15,"elev":5705.0,"sids":["044616 2","USC00044616 6"]}
+{"id":2408,"name":"GARDEN VALLEY 2 S","lat":38.83333,"lon":-120.85,"elev":1942.0,"sids":["043338 2","USC00043338 6"]}
+{"id":2409,"name":"KELSEY 1 N","lat":38.8088,"lon":-120.8208,"elev":2000.0,"sids":["044484 2","USC00044484 6","KLSC1 7"]}
+{"id":2412,"name":"GEORGETOWN 9 E","lat":38.91667,"lon":-120.68333,"elev":4042.0,"sids":["043383 2","USC00043383 6"]}
+{"id":2413,"name":"GEORGETOWN RS","lat":38.933,"lon":-120.8008,"elev":3001.0,"sids":["043384 2","USC00043384 6","GEOC1 7"]}
+{"id":2414,"name":"GEORGETOWN","lat":38.91667,"lon":-120.83333,"elev":2723.0,"sids":["043381 2","USC00043381 6"]}
+{"id":2415,"name":"VOLCANOVILLE","lat":38.98333,"lon":-120.78333,"elev":3041.0,"sids":["049382 2","USC00049382 6"]}
+{"id":2416,"name":"FORESTHILL RANGER STATION","lat":39.01,"lon":-120.8455,"elev":3015.0,"sids":["043134 2","USC00043134 6","FSTC1 7"]}
+{"id":2417,"name":"HELL HOLE","lat":39.0583,"lon":-120.415,"elev":4850.0,"sids":["043891 2","USC00043891 6","HELC1 7"]}
+{"id":2418,"name":"MICHIGAN BLUFF","lat":39.05,"lon":-120.73333,"elev":3481.0,"sids":["045586 2","USC00045586 6"]}
+{"id":2419,"name":"IOWA HILL","lat":39.118,"lon":-120.8405,"elev":3100.0,"sids":["044288 2","USC00044288 6","IOWC1 7"]}
+{"id":2420,"name":"GOLD RUN 4 SW","lat":39.15014,"lon":-120.90026,"elev":3220.0,"sids":["043491 2","USC00043491 6","GLRC1 7"]}
+{"id":2422,"name":"BLUE CANYON NYACK AP","lat":39.27617,"lon":-120.70927,"elev":5286.0,"sids":["23225 1","040897 2","BLU 3","KBLU 5","USW00023225 6","BLU 7","USW00023225 32"]}
+{"id":2426,"name":"DONNER SUMMIT","lat":39.31667,"lon":-120.33333,"elev":null,"sids":["23226 1","042470 2","USW00023226 6","USW00023226 32"]}
+{"id":2427,"name":"SODA SPRINGS 1 E","lat":39.3255,"lon":-120.3672,"elev":6885.0,"sids":["048332 2","048320 2","USC00048332 6","USC00048320 6","SODC1 7"]}
+{"id":2428,"name":"SODA SPRINGS","lat":39.31667,"lon":-120.38333,"elev":6755.0,"sids":["048331 2","USC00048331 6"]}
+{"id":2429,"name":"CISCO RANGER STN","lat":39.3,"lon":-120.51667,"elev":5745.0,"sids":["041768 2","USC00041768 6"]}
+{"id":2430,"name":"BIG BEN RANGER STN","lat":39.3,"lon":-120.51667,"elev":5745.0,"sids":["040747 2","USC00040747 6"]}
+{"id":2431,"name":"LAKE SPAULDING DAM","lat":39.33333,"lon":-120.63333,"elev":5125.0,"sids":["044714 2","USC00044714 6"]}
+{"id":2436,"name":"NEW MELONES DAM HQ","lat":38.0047,"lon":-120.4863,"elev":960.0,"sids":["046174 2","USC00046174 6","NMDC1 7"]}
+{"id":2469,"name":"CAMINO 2.6 ESE","lat":38.7186,"lon":-120.634,"elev":3108.0,"sids":["US1CAED0012 6","CAED0012 10"]}
+{"id":2475,"name":"EMIGRANT GAP","lat":39.30333,"lon":-120.65083,"elev":5250.0,"sids":["042831 2","USC00042831 6","EMGC1 7"]}
+{"id":2476,"name":"PIONEER 6E","lat":38.44472,"lon":-120.51222,"elev":3000.0,"sids":["046936 2","USC00046936 6","PRNC1 7"]}
+{"id":2477,"name":"BEAR VALLEY","lat":38.44056,"lon":-120.07611,"elev":6900.0,"sids":["040595 2","USC00040595 6","BVEC1 7"]}
+{"id":2480,"name":"PACIFIC HOUSE #2","lat":38.758,"lon":-120.5033,"elev":3440.0,"sids":["046600 2","PCHC1 7"]}
+{"id":2481,"name":"YOSEMITE VILLAGE 12 W","lat":37.7592,"lon":-119.8208,"elev":6620.0,"sids":["53150 1","049890 2","USW00053150 6","YVVC1 7","USW00053150 32"]}
+{"id":2489,"name":"MURPHYS 2.8 ENE","lat":38.16524,"lon":-120.4124,"elev":3352.0,"sids":["US1CACV0004 6","CACV0004 10"]}
+{"id":2490,"name":"DIAMOND SPRINGS 0.1 W","lat":38.68571,"lon":-120.82389,"elev":1778.0,"sids":["US1CAED0001 6","CAED0001 10"]}
+{"id":2491,"name":"PLACERVILLE 2.9 WNW","lat":38.7532,"lon":-120.8401,"elev":1800.0,"sids":["US1CAED0002 6","CAED0002 10"]}
+{"id":2492,"name":"PLACERVILLE 3.7 SW","lat":38.69527,"lon":-120.84895,"elev":1755.0,"sids":["US1CAED0003 6","CAED0003 10"]}
+{"id":2493,"name":"FAIR PLAY 2.8 ESE","lat":38.59248,"lon":-120.60935,"elev":3390.0,"sids":["US1CAED0007 6","CAED0007 10"]}
+{"id":2494,"name":"PLACERVILLE 0.9 NE","lat":38.73917,"lon":-120.78459,"elev":2036.0,"sids":["US1CAED0010 6","CAED0010 10"]}
+{"id":2505,"name":"OAKHURST 7.5 N","lat":37.4415,"lon":-119.6316,"elev":4274.0,"sids":["US1CAMA0001 6","CAMA0001 10"]}
+{"id":2507,"name":"MARIPOSA 3.7 NNW","lat":37.53962,"lon":-119.98761,"elev":2942.0,"sids":["US1CAMP0001 6","CAMP0001 10"]}
+{"id":2508,"name":"MARIPOSA 12.5 E","lat":37.4613,"lon":-119.7417,"elev":2952.0,"sids":["US1CAMP0002 6","CAMP0002 10"]}
+{"id":2509,"name":"LA GRANGE 7.8 ESE","lat":37.63544,"lon":-120.32731,"elev":1114.0,"sids":["US1CAMP0003 6","CAMP0003 10"]}
+{"id":2511,"name":"KINGVALE 1.3 WSW","lat":39.31744,"lon":-120.45172,"elev":6035.0,"sids":["US1CANV0003 6","CANV0003 10"]}
+{"id":2512,"name":"SODA SPRINGS 1.5 SSW","lat":39.30206,"lon":-120.38367,"elev":6887.0,"sids":["US1CAPC0001 6","CAPC0001 10"]}
+{"id":2515,"name":"SONORA 0.4 W","lat":37.9828,"lon":-120.388,"elev":1771.0,"sids":["US1CATM0001 6","CATM0001 10"]}
+{"id":2534,"name":"PLACERVILLE 3 ENE","lat":38.7852,"lon":-120.7419,"elev":2658.0,"sids":["046961 2","USC00046961 6","PEDC1 7"]}
+{"id":2541,"name":"POLLOCK PINES 0.5 NW","lat":38.75704,"lon":-120.57751,"elev":3895.0,"sids":["US1CAED0011 6","CAED0011 10"]}
+{"id":2543,"name":"MARIPOSA 12.5 E","lat":37.4623,"lon":-119.74026,"elev":2940.0,"sids":["US1CAMP0006 6","CAMP0006 10"]}
+{"id":2545,"name":"BALD MTN LOC CALIFORNIA","lat":38.9056,"lon":-120.6972,"elev":4680.0,"sids":["USR0000CBAL 6"]}
+{"id":2546,"name":"BATTERSON CALIFORNIA","lat":37.2319,"lon":-119.5083,"elev":3160.0,"sids":["USR0000CBAT 6"]}
+{"id":2548,"name":"BEN BOLT CALIFORNIA","lat":38.5908,"lon":-120.9336,"elev":905.0,"sids":["USR0000CBLT 6"]}
+{"id":2550,"name":"BUCK MEADOWS CALIFORNIA","lat":37.8233,"lon":-120.0975,"elev":3200.0,"sids":["USR0000CBUC 6"]}
+{"id":2551,"name":"BEAVER CAMP LOC CALIFORNIA","lat":38.4883,"lon":-120.325,"elev":5000.0,"sids":["USR0000CBVR 6"]}
+{"id":2553,"name":"CEDAR GROVE CALIFORNIA","lat":36.7878,"lon":-118.6561,"elev":4720.0,"sids":["USR0000CCDG 6"]}
+{"id":2554,"name":"CRANE FLAT LOOKOUT CALIFORNIA","lat":37.7617,"lon":-119.8247,"elev":6644.0,"sids":["USR0000CCRA 6"]}
+{"id":2556,"name":"DINKEY CALIFORNIA","lat":37.0664,"lon":-119.0394,"elev":5668.0,"sids":["USR0000CDNK 6"]}
+{"id":2557,"name":"DEVILS POST PILE CALIFORNIA","lat":37.63,"lon":-119.0933,"elev":7560.0,"sids":["USR0000CDPP 6"]}
+{"id":2558,"name":"DUNCAN CALIFORNIA","lat":39.1439,"lon":-120.5089,"elev":7100.0,"sids":["USR0000CDUN 6"]}
+{"id":2559,"name":"MOUNT ELIZABETH CALIFORNIA","lat":38.0631,"lon":-120.2469,"elev":4933.0,"sids":["USR0000CELI 6"]}
+{"id":2562,"name":"FENCE MEADOW CALIFORNIA","lat":36.9614,"lon":-119.175,"elev":5048.0,"sids":["USR0000CFEN 6"]}
+{"id":2563,"name":"FORESTHILL CALIFORNIA","lat":39.0914,"lon":-120.7317,"elev":4355.0,"sids":["USR0000CFOR 6"]}
+{"id":2565,"name":"GREEN SPRING CALIFORNIA","lat":37.8331,"lon":-120.5,"elev":1020.0,"sids":["USR0000CGSP 6"]}
+{"id":2566,"name":"GRIZZLY FLAT CALIFORNIA","lat":38.6197,"lon":-120.5614,"elev":3740.0,"sids":["USR0000CGZF 6"]}
+{"id":2567,"name":"HELL HOLE CALIFORNIA","lat":39.0717,"lon":-120.4217,"elev":5240.0,"sids":["USR0000CHEL 6"]}
+{"id":2568,"name":"HIGH SIERRA CALIFORNIA","lat":37.3147,"lon":-119.0383,"elev":7403.0,"sids":["USR0000CHIG 6"]}
+{"id":2570,"name":"JERSEYDALE CALIFORNIA","lat":37.5436,"lon":-119.8386,"elev":3900.0,"sids":["USR0000CJER 6"]}
+{"id":2571,"name":"MARIPOSA GROVE CALIFORNIA","lat":37.5128,"lon":-119.6047,"elev":6400.0,"sids":["USR0000CMAR 6"]}
+{"id":2572,"name":"MERCED RIVER CALIFORNIA","lat":37.6528,"lon":-120.0883,"elev":2600.0,"sids":["USR0000CMER 6"]}
+{"id":2577,"name":"MARIPOSA CALIFORNIA","lat":37.5042,"lon":-119.9869,"elev":2231.0,"sids":["USR0000CMSA 6"]}
+{"id":2579,"name":"NORTH FORK CALIFORNIA","lat":37.2331,"lon":-119.5047,"elev":2720.0,"sids":["USR0000CNFO 6"]}
+{"id":2581,"name":"OWENS CAMP LOC CALIFORNIA","lat":38.7333,"lon":-120.245,"elev":5240.0,"sids":["USR0000COWE 6"]}
+{"id":2584,"name":"PARK RIDGE CALIFORNIA","lat":36.7242,"lon":-118.9425,"elev":7540.0,"sids":["USR0000CPKR 6"]}
+{"id":2588,"name":"SHAVER CALIFORNIA","lat":37.135,"lon":-119.2561,"elev":5746.0,"sids":["USR0000CSHA 6"]}
+{"id":2589,"name":"SHADEQUARTER CALIFORNIA","lat":36.5672,"lon":-118.9556,"elev":4069.0,"sids":["USR0000CSHQ 6"]}
+{"id":2591,"name":"SUGARLOAF CALIFORNIA","lat":36.7267,"lon":-118.675,"elev":8120.0,"sids":["USR0000CSUG 6"]}
+{"id":2592,"name":"MOUNT TOM CALIFORNIA","lat":37.3761,"lon":-119.1783,"elev":9018.0,"sids":["USR0000CTOM 6"]}
+{"id":2593,"name":"TRIMMER CALIFORNIA","lat":36.9111,"lon":-119.305,"elev":1540.0,"sids":["USR0000CTRM 6"]}
+{"id":2594,"name":"GAYLOR MEADOW CALIFORNIA","lat":37.8683,"lon":-119.3183,"elev":9270.0,"sids":["USR0000CTUO 6"]}
+{"id":2596,"name":"WHITE CLOUD CALIFORNIA","lat":39.3167,"lon":-120.8375,"elev":4320.0,"sids":["USR0000CWHC 6"]}
+{"id":2597,"name":"WHITE WOLF CALIFORNIA","lat":37.8511,"lon":-119.65,"elev":8025.0,"sids":["USR0000CWWO 6"]}
+{"id":2605,"name":"BLUE LAKES","lat":38.61,"lon":-119.92,"elev":8057.0,"sids":["USS0019L05S 6"]}
+{"id":2624,"name":"SQUAW VALLEY G.C.","lat":39.19,"lon":-120.26,"elev":8029.0,"sids":["USS0020K30S 6"]}
+{"id":2625,"name":"CSS LAB","lat":39.33,"lon":-120.37,"elev":6855.0,"sids":["USS0020K31S 6"]}
+{"id":2631,"name":"CAMINO 2.0 WSW","lat":38.73384,"lon":-120.711,"elev":2910.0,"sids":["US1CAED0017 6","CAED0017 10"]}
+{"id":2632,"name":"POLLOCK PINES 1.9 WNW","lat":38.7575,"lon":-120.60462,"elev":3849.0,"sids":["US1CAED0018 6","CAED0018 10"]}
+{"id":2643,"name":"TWAIN HARTE 1.6 SW","lat":38.02389,"lon":-120.25334,"elev":3231.0,"sids":["US1CATM0003 6","CATM0003 10"]}
+{"id":2644,"name":"TUOLUMNE CITY 2.0 N","lat":37.99186,"lon":-120.23742,"elev":2915.0,"sids":["US1CATM0005 6","CATM0005 10"]}
+{"id":2645,"name":"COLUMBIA 1.6 NW","lat":38.04166,"lon":-120.42467,"elev":2326.0,"sids":["US1CATM0004 6","CATM0004 10"]}
+{"id":2647,"name":"ARNOLD 3.2 ENE","lat":38.2423,"lon":-120.3118,"elev":4036.0,"sids":["US1CACV0006 6","CACV0006 10"]}
+{"id":2648,"name":"WILSEYVILLE 2.2 E","lat":38.38037,"lon":-120.47346,"elev":3027.0,"sids":["US1CACV0008 6","CACV0008 10"]}
+{"id":2650,"name":"SONORA 3.4 E","lat":37.9848,"lon":-120.3195,"elev":2538.0,"sids":["US1CATM0007 6","CATM0007 10"]}
+{"id":2657,"name":"PLACERVILLE 6.6 ESE","lat":38.6803,"lon":-120.69099,"elev":2587.0,"sids":["US1CAED0027 6","CAED0027 10"]}
+{"id":2666,"name":"AUBERRY 1.1 WSW","lat":37.07019,"lon":-119.51029,"elev":2000.0,"sids":["US1CAFR0028 6","CAFR0028 10"]}
+{"id":2672,"name":"MARIPOSA 7.1 E","lat":37.50687,"lon":-119.83916,"elev":3210.0,"sids":["US1CAMP0009 6","CAMP0009 10"]}
+{"id":2700,"name":"AUBERRY 1.9 WSW","lat":37.0668,"lon":-119.5251,"elev":2011.0,"sids":["US1CAFR0030 6","CAFR0030 10"]}
+{"id":2708,"name":"MODESTO IRRIGATION DISTRICT","lat":37.64366,"lon":-120.00257,"elev":88.0,"sids":["045739 2","USC00045739 6","MODC1 7"]}
+{"id":2711,"name":"DIAMOND SPRINGS 0.7 ENE","lat":38.69053,"lon":-120.81098,"elev":1877.0,"sids":["US1CAED0032 6","CAED0032 10"]}
+{"id":2715,"name":"TUOLUMNE 2.1 SW","lat":37.94083,"lon":-120.26633,"elev":2706.0,"sids":["US1CATM0011 6","CATM0011 10"]}
+{"id":2718,"name":"RIVER PINES 0.2 SE","lat":38.54448,"lon":-120.74285,"elev":2033.0,"sids":["US1CAAM0017 6","CAAM0017 10"]}
+{"id":2719,"name":"CAMINO 1.2 N","lat":38.7547,"lon":-120.67117,"elev":3091.0,"sids":["US1CAED0036 6","CAED0036 10"]}
+{"id":2722,"name":"PLYMOUTH 7.1 NE","lat":38.54596,"lon":-120.74555,"elev":2023.0,"sids":["US1CAAM0019 6","CAAM0019 10"]}
+{"id":2731,"name":"ARNOLD 0.0 S","lat":38.23171,"lon":-120.36988,"elev":3873.0,"sids":["US1CACV0015 6","CACV0015 10"]}
+{"id":2734,"name":"ARNOLD 0.6 ENE","lat":38.23396,"lon":-120.359,"elev":3865.0,"sids":["US1CACV0014 6","CACV0014 10"]}
+{"id":2736,"name":"SOMERSET 5.5 SE","lat":38.59319,"lon":-120.60878,"elev":3378.0,"sids":["US1CAED0037 6","CAED0037 10"]}
+{"id":2737,"name":"TWAIN HARTE 1.6 SSE","lat":38.01875,"lon":-120.224,"elev":3472.0,"sids":["US1CATM0012 6","CATM0012 10"]}
+{"id":2748,"name":"DUTCH FLAT 0.7 S","lat":39.19591,"lon":-120.83798,"elev":3182.0,"sids":["US1CAPC0059 6","CAPC0059 10"]}
+{"id":2749,"name":"NORTH FORK 1.3 SE","lat":37.22341,"lon":-119.48894,"elev":2756.0,"sids":["US1CAMA0018 6","CAMA0018 10"]}
+{"id":2754,"name":"BOWMAN DAM","lat":39.4539,"lon":-120.6556,"elev":5385.0,"sids":["041018 2","USC00041018 6","BODC1 7"]}
+{"id":2755,"name":"SIERRAVILLE RS","lat":39.5833,"lon":-120.3705,"elev":4975.0,"sids":["048218 2","USC00048218 6","SERC1 7"]}
+{"id":2756,"name":"SIERRA CITY","lat":39.56778,"lon":-120.62278,"elev":4240.0,"sids":["048207 2","USC00048207 6","SIEC1 7"]}
+{"id":2757,"name":"DOWNIEVILLE","lat":39.5633,"lon":-120.8238,"elev":2915.0,"sids":["042500 2","USC00042500 6","DWNC1 7"]}
+{"id":2759,"name":"LOYALTON","lat":39.68333,"lon":-120.25,"elev":4944.0,"sids":["045171 2","USC00045171 6"]}
+{"id":2760,"name":"VINTON","lat":39.8056,"lon":-120.1858,"elev":4950.0,"sids":["049351 2","USC00049351 6","VTNC1 7"]}
+{"id":2761,"name":"PORTOLA","lat":39.8053,"lon":-120.4719,"elev":4850.0,"sids":["047085 2","USC00047085 6","PRAC1 7"]}
+{"id":2762,"name":"PORTOLA 2","lat":39.8,"lon":-120.48333,"elev":4833.0,"sids":["047088 2","USC00047088 6"]}
+{"id":2763,"name":"SLOAT","lat":39.86667,"lon":-120.73333,"elev":4124.0,"sids":["048292 2","USC00048292 6"]}
+{"id":2778,"name":"JESS VALLEY","lat":41.2706,"lon":-120.29845,"elev":5319.0,"sids":["044374 2","USC00044374 6","JESC1 7"]}
+{"id":2779,"name":"CANBY 3 SW","lat":41.4219,"lon":-120.9016,"elev":4310.0,"sids":["041476 2","USC00041476 6","CBYC1 7"]}
+{"id":2780,"name":"ALTURAS","lat":41.49021,"lon":-120.54376,"elev":4373.0,"sids":["040161 2","USC00040161 6","ALTC1 7"]}
+{"id":2828,"name":"ALTURAS MUNICIPAL AP","lat":41.48362,"lon":-120.5615,"elev":4383.0,"sids":["94299 1","AAT 3","O00 3","KAAT 5","KO00 5","USW00094299 6","USW00094299 32"]}
+{"id":2832,"name":"BASSETS STATION","lat":39.6175,"lon":-120.59222,"elev":5457.0,"sids":["040539 2","USC00040539 6","BSTC1 7"]}
+{"id":2900,"name":"ASH VALLEY CALIFORNIA","lat":41.0519,"lon":-120.6861,"elev":5100.0,"sids":["USR0000CASH 6"]}
+{"id":2901,"name":"BLUE DOOR CALIFORNIA","lat":41.0547,"lon":-120.3375,"elev":5615.0,"sids":["USR0000CBLD 6"]}
+{"id":2902,"name":"BEAR FLAT CALIFORNIA","lat":41.295,"lon":-120.3133,"elev":6200.0,"sids":["USR0000CBRF 6"]}
+{"id":2904,"name":"CANBY CALIFORNIA","lat":41.4342,"lon":-120.8678,"elev":4312.0,"sids":["USR0000CCAN 6"]}
+{"id":2905,"name":"CASHMAN CALIFORNIA","lat":40.0017,"lon":-120.915,"elev":4520.0,"sids":["USR0000CCSH 6"]}
+{"id":2906,"name":"DEVILS GARDEN CALIFORNIA","lat":41.53,"lon":-120.6714,"elev":5022.0,"sids":["USR0000CDGR 6"]}
+{"id":2912,"name":"JUNIPER CREEK CALIFORNIA","lat":41.3322,"lon":-120.4725,"elev":4372.0,"sids":["USR0000CJUN 6"]}
+{"id":2914,"name":"MODOC NWR CALIFORNIA","lat":41.4589,"lon":-120.3536,"elev":4380.0,"sids":["USR0000CMOD 6"]}
+{"id":2917,"name":"RUSH CREEK CALIFORNIA","lat":41.2944,"lon":-120.8639,"elev":4800.0,"sids":["USR0000CRUS 6"]}
+{"id":2918,"name":"SADDLEBACK CALIFORNIA","lat":39.6375,"lon":-120.8653,"elev":6670.0,"sids":["USR0000CSDD 6"]}
+{"id":2920,"name":"WESTWOOD CALIFORNIA","lat":40.3067,"lon":-120.9,"elev":5800.0,"sids":["USR0000CWES 6"]}
+{"id":2935,"name":"CEDAR PASS","lat":41.58,"lon":-120.3,"elev":7030.0,"sids":["USS0020H06S 6"]}
+{"id":2937,"name":"ADIN MTN","lat":41.24,"lon":-120.79,"elev":6190.0,"sids":["USS0020H13S 6"]}
+{"id":2947,"name":"QUINCY 2.3 E","lat":39.93838,"lon":-120.905,"elev":3473.0,"sids":["US1CAPM0006 6","CAPM0006 10"]}
+{"id":2951,"name":"BECKWOURTH 3.3 E","lat":39.81793,"lon":-120.31579,"elev":4959.0,"sids":["US1CAPM0009 6","CAPM0009 10"]}
+{"id":2963,"name":"SIERRAVILLE 1.2 SW","lat":39.578,"lon":-120.383,"elev":5112.0,"sids":["US1CASI0002 6","CASI0002 10"]}
+{"id":2978,"name":"ALTURAS 9 ENE","lat":41.51472,"lon":-120.36406,"elev":5307.0,"sids":["040162 2","USC00040162 6","XATC1 7"]}
+{"id":3654,"name":"BEAR PEAK CALIFORNIA","lat":35.8842,"lon":-118.0517,"elev":8228.0,"sids":["USR0000CBEA 6"]}
+{"id":3690,"name":"WALKER PASS CALIFORNIA","lat":35.6647,"lon":-118.0569,"elev":5572.0,"sids":["USR0000CWAL 6"]}
