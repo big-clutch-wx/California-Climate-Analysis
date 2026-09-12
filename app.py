@@ -260,13 +260,26 @@ selected_regions = st.sidebar.multiselect(
 )
 
 st.sidebar.markdown("---")
-
 st.sidebar.markdown("### Analysis Mode")
-st.sidebar.radio(
+
+analysis_mode = st.sidebar.radio(
     "Mode:",
-    ["Water Years (WY)"],
+    ["Comparison Mode", "Extremes / Records"],
     index=0,
 )
+
+if analysis_mode == "Comparison Mode":
+    comparison_mode = st.sidebar.radio(
+        "Comparison type:",
+        [
+            "Full Water Years",
+            "Recurring Seasonal Stretch",
+            "Distinct Custom Date Ranges",
+        ],
+        index=0,
+    )
+else:
+    comparison_mode = None
 
 st.sidebar.markdown("---")
 st.sidebar.caption(f"Data directory: `{DATA_DIR}`")
@@ -277,306 +290,514 @@ st.sidebar.caption(f"Data directory: `{DATA_DIR}`")
 # ---------------------------------------------------------------------------
 
 st.title("🌧️ California Precipitation Analysis")
-st.markdown(
-    "**Water Year (WY) comparison** — July 1 through June 30"
-)
-
-st.info(
-    "WY labels use the water-year convention: WY 1995 is displayed as "
-    "**1994-95**."
-)
 
 if not selected_regions:
     st.warning("Select at least one hydrological region.")
     st.stop()
 
-col1, col2 = st.columns([2, 1])
-
-with col1:
-    years_input = st.text_input(
-        "Water years",
-        value="1998, 1995",
-        help="Enter WY ending years. Examples: 1983, 1998, 2016 or 2015-2020",
-    )
-
-with col2:
-    min_valid_days = st.number_input(
-        "Minimum valid days per WY",
-        min_value=1,
-        max_value=366,
-        value=200,
-        step=1,
-        help=(
-            "For modern data this defaults to the 200-day threshold used "
-            "by compare(3).py. Historical WYs can automatically use 100."
-        ),
-    )
-
-show_detail = st.checkbox(
-    "Show detailed station breakdown",
-    value=True,
-)
-
-run_analysis = st.button(
-    "🔍 Run Water Year Analysis",
-    type="primary",
-    use_container_width=True,
-)
-
-
 # ---------------------------------------------------------------------------
-# Run WY analysis
+# Comparison Mode
 # ---------------------------------------------------------------------------
 
-if run_analysis:
+if analysis_mode == "Comparison Mode":
 
-    try:
-        metadata = load_metadata(str(DATA_DIR))
+    st.header("Comparison Mode")
 
-        wy_end_years = parse_years_web(years_input)
-
-        if not wy_end_years:
-            st.error("No valid water years were entered.")
-            st.stop()
-
-        # Standard WY convention: WY 1998 runs 1997-07-01 through 1998-06-30.
-        # compare(3).py's current DuckDB function expects the *starting* year,
-        # so convert the user-entered WY identifier here.
-        years = [y - 1 for y in wy_end_years]
-
-        if any(y > 2025 for y in wy_end_years):
-            st.warning(
-                "WY 2026 is incomplete in the current dataset. "
-                "The CLI extremes mode excludes it, but WY comparison mode "
-                "can still query it if requested."
-            )
-
-        station_region_map = build_region_map(
-            tuple(metadata.items()),
-            tuple(selected_regions),
+    if comparison_mode == "Full Water Years":
+        st.markdown(
+            "**Full Water Years** — July 1 through June 30. "
+            "Enter the year in which the water year ends."
         )
 
-        matching_ids = set(station_region_map.keys())
-
-        if not matching_ids:
-            st.error("No stations were found inside the selected region(s).")
-            st.stop()
-
-        # Match compare(3).py's threshold behavior:
-        # historical selections (<1950) use 100 valid days; otherwise 200.
-        effective_min_valid = (
-            100 if any(y < 1950 for y in wy_end_years) else int(min_valid_days)
+        st.info(
+            "Water-year identifiers use the standard ending-year convention: "
+            "**WY 1998 = July 1, 1997 through June 30, 1998**, displayed as "
+            "**1997-98**."
         )
 
-        with st.spinner(
-            f"Querying {len(matching_ids)} stations across "
-            f"{len(years)} water year(s)..."
-        ):
-            # This calls the exact DuckDB WY engine from compare(3).py.
-            df_res = engine.run_duckdb_water_years(
-                matching_ids,
-                years,
-                min_valid_days=effective_min_valid,
-            )
-
-        if df_res is None or df_res.empty:
-            st.warning(
-                "No station data met the minimum valid-day threshold "
-                "for the selected water years."
-            )
-            st.stop()
-
-        # Map every station to its selected hydrological region.
-        df_res["region"] = df_res["station_id"].map(station_region_map)
-
-        # -------------------------------------------------------------------
-        # Exact compare(3).py common-station filtering
-        # -------------------------------------------------------------------
-        all_periods = df_res["period_label"].unique()
-
-        stations_in_all_periods = (
-            df_res.groupby("station_id")["period_label"]
-            .nunique()
-            .loc[lambda x: x == len(all_periods)]
-            .index
+        years_input = st.text_input(
+            "Enter water years",
+            value="1998, 1995",
+            help=(
+                "Enter WY ending years. Examples: 1983, 1998, 2016 "
+                "or 2015-2020."
+            ),
         )
 
-        df_res = df_res[
-            df_res["station_id"].isin(stations_in_all_periods)
-        ].copy()
-
-        if df_res.empty:
-            st.warning(
-                "No stations have valid data in every selected water year."
-            )
-            st.stop()
-
-        # -------------------------------------------------------------------
-        # Regional Comparison Summary Table
-        # -------------------------------------------------------------------
-
-        summary = build_summary(
-            df_res,
-            regions,
-            station_region_map,
+        min_valid_days = st.number_input(
+            "Minimum valid days per WY",
+            min_value=1,
+            max_value=366,
+            value=200,
+            step=1,
+            help=(
+                "Modern data uses the selected threshold. Historical "
+                "pre-1950 WYs automatically use 100 valid days."
+            ),
         )
 
-        st.success(
-            f"Analysis complete — {len(stations_in_all_periods)} stations "
-            f"have data in every selected WY."
+        show_detail = st.checkbox(
+            "Show detailed station breakdown",
+            value=True,
         )
 
-        st.header("Regional Comparison Summary Table")
+        run_analysis = st.button(
+            "🔍 Run Water Year Comparison",
+            type="primary",
+            use_container_width=True,
+        )
 
-        for region in selected_regions:
+    elif comparison_mode == "Recurring Seasonal Stretch":
+        st.markdown(
+            "**Recurring Seasonal Stretch** — the same MM-DD period is "
+            "evaluated in each selected calendar year. If the end date is "
+            "earlier than the start date, the stretch crosses New Year's."
+        )
 
-            region_data = (
-                summary[summary["region"] == region]
-                .sort_values("period_id")
-                .copy()
+        col1, col2 = st.columns(2)
+        with col1:
+            start_mmdd = st.text_input(
+                "Start date (MM-DD)",
+                value="11-01",
+                help="Example: 11-01",
+            )
+        with col2:
+            end_mmdd = st.text_input(
+                "End date (MM-DD)",
+                value="11-30",
+                help="Example: 02-18 for a cross-year stretch.",
             )
 
-            if region_data.empty:
-                st.subheader(f"{region} (0 stations)")
-                st.info("No valid station data for this region.")
-                continue
+        years_input = st.text_input(
+            "Enter years to compare",
+            value="1981, 1982",
+            help="Examples: 1980, 1995, 2010 or 2015-2020.",
+        )
 
-            # In WY comparison mode, compare(3).py uses the station count
-            # from the first period after the global common-station filter.
-            station_count = int(region_data["station_count"].iloc[0])
+        st.info(
+            "Stations are always required to have valid data in **every "
+            "selected year**. There is no optional strict-consistency switch."
+        )
 
-            st.subheader(f"{region} ({station_count} stations)")
+        show_detail = st.checkbox(
+            "Show detailed station breakdown",
+            value=True,
+        )
 
-            table = region_data[
-                ["period_label", "avg_precip", "pct_base"]
+        run_analysis = st.button(
+            "🔍 Run Seasonal Comparison",
+            type="primary",
+            use_container_width=True,
+        )
+
+    else:  # Distinct Custom Date Ranges
+        st.markdown(
+            "**Distinct Custom Date Ranges** — compare two or more "
+            "individually specified date ranges and include consecutive "
+            "wet/dry spell metrics in the station-level results."
+        )
+
+        range_count = st.number_input(
+            "Number of date ranges",
+            min_value=2,
+            max_value=10,
+            value=2,
+            step=1,
+        )
+
+        date_ranges = []
+
+        for i in range(int(range_count)):
+            st.markdown(f"**Range #{i + 1}**")
+            c1, c2 = st.columns(2)
+
+            with c1:
+                start_date = st.date_input(
+                    "Start date",
+                    value=__import__("datetime").date(1981 + i, 1, 1),
+                    key=f"custom_start_{i}",
+                )
+
+            with c2:
+                end_date = st.date_input(
+                    "End date",
+                    value=__import__("datetime").date(1981 + i, 3, 31),
+                    key=f"custom_end_{i}",
+                )
+
+            if start_date > end_date:
+                st.error(f"Range #{i + 1}: start date must be on or before end date.")
+            else:
+                total_days = (end_date - start_date).days + 1
+                min_valid = max(1, int(total_days * 0.70))
+                date_ranges.append(
+                    {
+                        "start": start_date.strftime("%Y-%m-%d"),
+                        "end": end_date.strftime("%Y-%m-%d"),
+                        "label": (
+                            f"{start_date.strftime('%b %d, %Y')} - "
+                            f"{end_date.strftime('%b %d, %Y')}"
+                        ),
+                        "min_valid_days": min_valid,
+                        "total_days": total_days,
+                    }
+                )
+                st.caption(
+                    f"{total_days} total days; requiring at least "
+                    f"{min_valid} valid days (70%)."
+                )
+
+        show_detail = st.checkbox(
+            "Show detailed station breakdown",
+            value=True,
+        )
+
+        run_analysis = st.button(
+            "🔍 Run Custom-Range Comparison",
+            type="primary",
+            use_container_width=True,
+        )
+
+    if run_analysis:
+        try:
+            metadata = load_metadata(str(DATA_DIR))
+
+            station_region_map = build_region_map(
+                tuple(metadata.items()),
+                tuple(selected_regions),
+            )
+            matching_ids = set(station_region_map.keys())
+
+            if not matching_ids:
+                st.error("No stations were found inside the selected region(s).")
+                st.stop()
+
+            # ---------------------------------------------------------------
+            # Run the selected comparison engine
+            # ---------------------------------------------------------------
+
+            if comparison_mode == "Full Water Years":
+                wy_end_years = parse_years_web(years_input)
+
+                if not wy_end_years:
+                    st.error("No valid water years were entered.")
+                    st.stop()
+
+                # compare.py expects the starting year:
+                # 1997-07-01 through 1998-06-30 is passed as 1997.
+                engine_years = [y - 1 for y in wy_end_years]
+
+                if any(y > 2025 for y in wy_end_years):
+                    st.warning(
+                        "WY 2026 is incomplete in the current dataset."
+                    )
+
+                effective_min_valid = (
+                    100
+                    if any(y < 1950 for y in wy_end_years)
+                    else int(min_valid_days)
+                )
+
+                with st.spinner(
+                    f"Querying {len(matching_ids)} stations across "
+                    f"{len(wy_end_years)} water year(s)..."
+                ):
+                    df_res = engine.run_duckdb_water_years(
+                        matching_ids,
+                        engine_years,
+                        min_valid_days=effective_min_valid,
+                    )
+
+            elif comparison_mode == "Recurring Seasonal Stretch":
+                years = parse_years_web(years_input)
+
+                if not years:
+                    st.error("No valid years were entered.")
+                    st.stop()
+
+                # Validate MM-DD using the same calendar logic as compare.py.
+                try:
+                    from datetime import datetime
+                    sm, sd = map(int, start_mmdd.strip().split("-"))
+                    em, ed = map(int, end_mmdd.strip().split("-"))
+                    datetime(2001, sm, sd)
+                    datetime(2001, em, ed)
+                    start_mmdd = f"{sm:02d}-{sd:02d}"
+                    end_mmdd = f"{em:02d}-{ed:02d}"
+                except ValueError:
+                    st.error("Invalid MM-DD date. Use the format MM-DD.")
+                    st.stop()
+
+                has_pre_1950 = any(y < 1950 for y in years)
+                min_ratio = 0.50 if has_pre_1950 else 0.70
+
+                with st.spinner(
+                    f"Querying {len(matching_ids)} stations across "
+                    f"{len(years)} seasonal occurrence(s)..."
+                ):
+                    # Strict consistency is deliberately ALWAYS enabled.
+                    df_res = engine.run_duckdb_custom_stretches(
+                        matching_ids,
+                        start_mmdd,
+                        end_mmdd,
+                        years,
+                        min_valid_ratio=min_ratio,
+                        strict_consistency=True,
+                    )
+
+            else:
+                if len(date_ranges) < 2:
+                    st.error("At least two valid custom date ranges are required.")
+                    st.stop()
+
+                with st.spinner(
+                    f"Querying {len(matching_ids)} stations across "
+                    f"{len(date_ranges)} custom ranges..."
+                ):
+                    df_res = engine.run_duckdb_distinct_ranges(
+                        matching_ids,
+                        date_ranges,
+                    )
+
+            if df_res is None or df_res.empty:
+                st.warning(
+                    "No consistent station data found across all specified periods."
+                )
+                st.stop()
+
+            # Map station to hydrological region.
+            df_res["region"] = df_res["station_id"].map(station_region_map)
+
+            # Always use the intersection of stations across ALL periods.
+            all_periods = df_res["period_label"].unique()
+            stations_in_all_periods = (
+                df_res.groupby("station_id")["period_label"]
+                .nunique()
+                .loc[lambda x: x == len(all_periods)]
+                .index
+            )
+
+            df_res = df_res[
+                df_res["station_id"].isin(stations_in_all_periods)
             ].copy()
 
-            table.columns = [
-                "Period",
-                "Avg Precip",
-                "% WY Base",
-            ]
+            if df_res.empty:
+                st.warning(
+                    "No stations have valid data in every selected period."
+                )
+                st.stop()
 
-            table["Avg Precip"] = table["Avg Precip"].map(
-                lambda x: f'{x:.2f}"'
-            )
-            table["% WY Base"] = table["% WY Base"].map(
-                lambda x: f"{x:.1f}%"
-            )
+            # ---------------------------------------------------------------
+            # Regional summary
+            # ---------------------------------------------------------------
 
-            st.dataframe(
-                table,
-                use_container_width=True,
-                hide_index=True,
-            )
-
-        # -------------------------------------------------------------------
-        # Statewide average and side-by-side matrix for multiple regions
-        # -------------------------------------------------------------------
-
-        if len(selected_regions) > 1:
-
-            st.header("Statewide Average (All Stations)")
-
-            statewide = build_statewide_summary(df_res)
-
-            statewide_table = statewide[
-                ["period_label", "avg_precip", "pct_base"]
-            ].copy()
-
-            statewide_table.columns = [
-                "Period",
-                "Avg Precip",
-                "% WY Base",
-            ]
-
-            statewide_table["Avg Precip"] = statewide_table[
-                "Avg Precip"
-            ].map(lambda x: f'{x:.2f}"')
-
-            statewide_table["% WY Base"] = statewide_table[
-                "% WY Base"
-            ].map(lambda x: f"{x:.1f}%")
-
-            st.dataframe(
-                statewide_table,
-                use_container_width=True,
-                hide_index=True,
-            )
-
-            st.header(
-                "Side-by-Side Regional Precipitation Matrix (Inches)"
-            )
-
-            matrix = summary.pivot(
-                index="region",
-                columns="period_label",
-                values="avg_precip",
-            )
-
-            # Match compare(3).py: statewide average is calculated from
-            # individual stations, not from regional means.
-            statewide_avg = (
-                df_res.groupby("period_label")["total_precip"]
-                .mean()
-            )
-
-            matrix.loc["STATEWIDE AVERAGE"] = statewide_avg
-
-            matrix = matrix.round(2)
-            matrix.index.name = "Region"
-
-            st.dataframe(
-                matrix,
-                use_container_width=True,
-            )
-
-        # -------------------------------------------------------------------
-        # Detailed station breakdown
-        # -------------------------------------------------------------------
-
-        if show_detail:
-
-            st.header("Detailed Station Breakdown")
-
-            detail_table = make_detail_table(
+            summary = build_summary(
                 df_res,
-                metadata,
+                regions,
                 station_region_map,
             )
 
-            st.caption(
-                f"All {len(detail_table)} stations with valid data in "
-                f"every selected WY, sorted by average precipitation "
-                f"across the selected water years."
+            st.success(
+                f"Analysis complete — {len(stations_in_all_periods)} stations "
+                f"have valid data in every selected period."
             )
 
-            st.dataframe(
-                detail_table,
-                use_container_width=True,
-                hide_index=True,
-            )
+            st.header("Regional Comparison Summary Table")
 
-            # Download exactly the displayed station-level precipitation
-            # table as CSV.
-            csv = detail_table.to_csv(index=False)
+            for region in selected_regions:
+                region_data = (
+                    summary[summary["region"] == region]
+                    .sort_values("period_id")
+                    .copy()
+                )
 
-            st.download_button(
-                "📥 Download Station Breakdown (CSV)",
-                data=csv,
-                file_name="california_wy_station_breakdown.csv",
-                mime="text/csv",
-                use_container_width=True,
-            )
+                if region_data.empty:
+                    st.subheader(f"{region} (0 stations)")
+                    st.info("No valid station data for this region.")
+                    continue
 
-    except FileNotFoundError as exc:
-        st.error(str(exc))
+                station_count = int(region_data["station_count"].iloc[0])
+                st.subheader(f"{region} ({station_count} stations)")
 
-    except Exception as exc:
-        st.error(f"Analysis error: {exc}")
+                table = region_data[
+                    ["period_label", "avg_precip", "pct_base"]
+                ].copy()
+                table.columns = ["Period", "Avg Precip", "% WY Base"]
 
-        with st.expander("Technical error details"):
-            st.exception(exc)
+                table["Avg Precip"] = table["Avg Precip"].map(
+                    lambda x: f'{x:.2f}"'
+                )
+                table["% WY Base"] = table["% WY Base"].map(
+                    lambda x: f"{x:.1f}%"
+                )
+
+                st.dataframe(
+                    table,
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+            # ---------------------------------------------------------------
+            # Statewide + matrix
+            # ---------------------------------------------------------------
+
+            if len(selected_regions) > 1:
+                st.header("Statewide Average (All Stations)")
+
+                statewide = build_statewide_summary(df_res)
+                statewide_table = statewide[
+                    ["period_label", "avg_precip", "pct_base"]
+                ].copy()
+                statewide_table.columns = [
+                    "Period",
+                    "Avg Precip",
+                    "% WY Base",
+                ]
+                statewide_table["Avg Precip"] = statewide_table[
+                    "Avg Precip"
+                ].map(lambda x: f'{x:.2f}"')
+                statewide_table["% WY Base"] = statewide_table[
+                    "% WY Base"
+                ].map(lambda x: f"{x:.1f}%")
+
+                st.dataframe(
+                    statewide_table,
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                st.header("Side-by-Side Regional Precipitation Matrix (Inches)")
+
+                matrix = summary.pivot(
+                    index="region",
+                    columns="period_label",
+                    values="avg_precip",
+                )
+
+                statewide_avg = df_res.groupby("period_label")[
+                    "total_precip"
+                ].mean()
+                matrix.loc["STATEWIDE AVERAGE"] = statewide_avg
+
+                st.dataframe(
+                    matrix.round(2),
+                    use_container_width=True,
+                )
+
+            # ---------------------------------------------------------------
+            # Detailed station breakdown
+            # ---------------------------------------------------------------
+
+            if show_detail:
+                st.header("Detailed Station Breakdown")
+
+                detail = df_res.pivot(
+                    index="station_id",
+                    columns="period_label",
+                    values="total_precip",
+                )
+
+                detail["station_name"] = [
+                    metadata.get(sid, {}).get("name", sid)
+                    for sid in detail.index
+                ]
+                detail["region"] = [
+                    station_region_map.get(sid, "Unknown")
+                    for sid in detail.index
+                ]
+
+                precip_cols = [
+                    c for c in detail.columns
+                    if c not in ["station_name", "region"]
+                ]
+
+                if precip_cols:
+                    detail["avg_precip"] = detail[precip_cols].mean(axis=1)
+                    detail = detail.sort_values("avg_precip", ascending=False)
+                    detail = detail.drop(columns=["avg_precip"])
+
+                display = detail[
+                    ["station_name", "region"] + precip_cols
+                ].dropna(subset=precip_cols).copy()
+
+                # Human-friendly headers matching the CLI's intent:
+                # seasonal/custom periods use the year(s) or compact dates;
+                # WY columns use the ending-year identifier.
+                rename_map = {}
+                for col in precip_cols:
+                    s = str(col)
+                    import re
+                    years_found = re.findall(r"\d{4}", s)
+
+                    if comparison_mode == "Full Water Years":
+                        if len(years_found) >= 2:
+                            rename_map[col] = years_found[-1]
+                        elif years_found:
+                            rename_map[col] = years_found[0]
+                        else:
+                            rename_map[col] = s
+                    elif comparison_mode == "Recurring Seasonal Stretch":
+                        if years_found:
+                            rename_map[col] = years_found[-1]
+                        else:
+                            rename_map[col] = s
+                    else:
+                        rename_map[col] = s
+
+                display = display.rename(columns=rename_map)
+
+                numeric_period_cols = [
+                    rename_map.get(c, c) for c in precip_cols
+                ]
+                for col in numeric_period_cols:
+                    if col in display.columns:
+                        display[col] = display[col].round(2)
+
+                st.caption(
+                    f"All {len(display)} stations with valid data in every "
+                    f"selected period, sorted by average precipitation."
+                )
+
+                st.dataframe(
+                    display.reset_index(drop=True),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                csv = display.to_csv(index=False)
+                st.download_button(
+                    "📥 Download Station Breakdown (CSV)",
+                    data=csv,
+                    file_name="california_comparison_station_breakdown.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+
+
+        except FileNotFoundError as exc:
+            st.error(str(exc))
+        except Exception as exc:
+            st.error(f"Analysis error: {exc}")
+            with st.expander("Technical error details"):
+                st.exception(exc)
+
+# ---------------------------------------------------------------------------
+# Extremes / Records
+# ---------------------------------------------------------------------------
+
+else:
+    st.header("Extremes / Records")
+
+    st.info(
+        "The web interface for Extremes / Records will use the same "
+        "1890–2026 DuckDB analysis engine as compare.py."
+    )
+
+    st.warning(
+        "Comparison Mode is currently the active web-analysis implementation. "
+        "Extremes / Records can be added next without changing the comparison "
+        "engine."
+    )
 
 
 # ---------------------------------------------------------------------------
