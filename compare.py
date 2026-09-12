@@ -817,6 +817,17 @@ def main():
     # Map station to region
     df_res['region'] = df_res['station_id'].map(station_region_map)
 
+    # --- OPTION A: Filter to stations present across ALL selected periods ---
+    all_periods = df_res['period_label'].unique()
+    stations_in_all_periods = (
+        df_res.groupby('station_id')['period_label']
+        .nunique()
+        .loc[lambda x: x == len(all_periods)]
+        .index
+    )
+    df_res = df_res[df_res['station_id'].isin(stations_in_all_periods)]
+    # ------------------------------------------------------------------------
+
     # Aggregate by region and period
     summary = df_res.groupby(['region', 'period_id', 'period_label']).agg(
         avg_precip=('total_precip', 'mean'),
@@ -931,15 +942,17 @@ def main():
         cols_to_display = ['station_name', 'region'] + precip_cols
         piv_display = piv_precip[cols_to_display].copy()
         
+        # Drop rows with N/A / NaN values in any period column
+        piv_display = piv_display.dropna(subset=precip_cols)
+        
         print(f"\n--- All {len(piv_display)} Stations Detail Table ---")
-        # Extract year range from period label (e.g., "1955-56" or "Dec 01, 1955 - Jan 31, 1956")
+        
+        # Extract year range from period label
         year_headers = []
         for p in precip_cols:
-            # Extract years from period label like "Dec 01, 1955 - Jan 31, 1956"
-            import re
             years = re.findall(r'\d{4}', p)
             if len(years) >= 2:
-                year_range = f"{years[0][-2:]}-{years[1][-2:]}"  # e.g., "1955-1956" -> "55-56"
+                year_range = f"{years[0][-2:]}-{years[1][-2:]}"
             elif len(years) == 1:
                 year_range = years[0]
             else:
@@ -950,7 +963,7 @@ def main():
         print("-" * 150)
         
         for idx, row in piv_display.iterrows():
-            precip_str = ' '.join([f"{row[p]:>10.2f}" if pd.notna(row[p]) else f"{'N/A':>10}" for p in precip_cols])
+            precip_str = ' '.join([f"{row[p]:>10.2f}" for p in precip_cols])
             print(f"{row['station_name']:<40} {row['region']:<20} {precip_str}")
 
 if __name__ == "__main__":
