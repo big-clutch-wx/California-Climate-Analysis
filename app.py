@@ -248,7 +248,7 @@ def build_statewide_summary(df_res):
 # ---------------------------------------------------------------------------
 
 st.sidebar.title("California Climate")
-st.sidebar.caption("California precipitation analysis")
+st.sidebar.caption("California precipitation analysis (1890-2026)")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Hydrological Regions")
@@ -308,7 +308,7 @@ def _sql_ids(matching_ids):
     )
 
 
-def run_lightweight_water_year_records(matching_ids, min_valid_days=100):
+def run_lightweight_water_year_records(matching_ids, min_valid_days=100, limit=5):
     """
     Find WY records entirely inside DuckDB.
 
@@ -360,14 +360,31 @@ def run_lightweight_water_year_records(matching_ids, min_valid_days=100):
         GROUP BY station_id, wy_end_year
         HAVING COUNT(p) >= {int(min_valid_days)}
     )
+    period_averages AS (
+        SELECT
+            wy_end_year,
+            AVG(total_precip) AS precip,
+            COUNT(*) AS station_count
+        FROM station_wy
+        WHERE wy_end_year BETWEEN 1890 AND 2025
+        GROUP BY wy_end_year
+    )
     SELECT
+        CASE WHEN ROW_NUMBER() OVER (
+            ORDER BY precip ASC, wy_end_year ASC
+        ) <= {int(limit)}
+            THEN 'Lowest'
+            ELSE 'Highest'
+        END AS record_type,
         wy_end_year,
-        AVG(total_precip) AS precip,
-        COUNT(*) AS station_count
-    FROM station_wy
-    WHERE wy_end_year BETWEEN 1890 AND 2025
-    GROUP BY wy_end_year
-    ORDER BY wy_end_year
+        precip,
+        station_count
+    FROM period_averages
+    QUALIFY
+        ROW_NUMBER() OVER (ORDER BY precip ASC, wy_end_year ASC) <= {int(limit)}
+        OR
+        ROW_NUMBER() OVER (ORDER BY precip DESC, wy_end_year ASC) <= {int(limit)}
+    ORDER BY record_type, precip, wy_end_year
     """
 
     with duckdb.connect() as con:
@@ -379,6 +396,7 @@ def run_lightweight_seasonal_records(
     start_mmdd,
     end_mmdd,
     min_valid_ratio=0.50,
+    limit=5,
 ):
     """
     Find recurring seasonal records inside DuckDB.
@@ -499,14 +517,31 @@ def run_lightweight_seasonal_records(
         GROUP BY station_id, occurrence_year
         HAVING COUNT(p) >= {required}
     )
+    period_averages AS (
+        SELECT
+            occurrence_year,
+            AVG(total_precip) AS precip,
+            COUNT(*) AS station_count
+        FROM station_occurrence
+        WHERE occurrence_year {occurrence_range}
+        GROUP BY occurrence_year
+    )
     SELECT
+        CASE WHEN ROW_NUMBER() OVER (
+            ORDER BY precip ASC, occurrence_year ASC
+        ) <= {int(limit)}
+            THEN 'Lowest'
+            ELSE 'Highest'
+        END AS record_type,
         occurrence_year,
-        AVG(total_precip) AS precip,
-        COUNT(*) AS station_count
-    FROM station_occurrence
-    WHERE occurrence_year {occurrence_range}
-    GROUP BY occurrence_year
-    ORDER BY occurrence_year
+        precip,
+        station_count
+    FROM period_averages
+    QUALIFY
+        ROW_NUMBER() OVER (ORDER BY precip ASC, occurrence_year ASC) <= {int(limit)}
+        OR
+        ROW_NUMBER() OVER (ORDER BY precip DESC, occurrence_year ASC) <= {int(limit)}
+    ORDER BY record_type, precip, occurrence_year
     """
 
     with duckdb.connect() as con:
@@ -517,6 +552,7 @@ def run_lightweight_rolling_records(
     matching_ids,
     window_days,
     min_valid_ratio=0.70,
+    limit=5,
 ):
     """
     Find rolling-N-day records without returning every rolling window.
@@ -605,7 +641,7 @@ def run_lightweight_rolling_records(
         FROM period_averages
         QUALIFY ROW_NUMBER() OVER (
             ORDER BY precip ASC, period_end ASC
-        ) = 1
+        ) <= {int(limit)}
 
         UNION ALL
 
@@ -618,11 +654,14 @@ def run_lightweight_rolling_records(
         FROM period_averages
         QUALIFY ROW_NUMBER() OVER (
             ORDER BY precip DESC, period_end ASC
-        ) = 1
+        ) <= {int(limit)}
     )
     SELECT *
     FROM records
-    ORDER BY record_type
+    ORDER BY record_type,
+             CASE WHEN record_type = 'Lowest' THEN precip END ASC,
+             CASE WHEN record_type = 'Highest' THEN precip END DESC,
+             period_end ASC
     """
 
     with duckdb.connect() as con:
@@ -816,11 +855,6 @@ if analysis_mode == "Comparison Mode":
                 # compare.py expects the starting year:
                 # 1997-07-01 through 1998-06-30 is passed as 1997.
                 engine_years = [y - 1 for y in wy_end_years]
-
-                if any(y > 2025 for y in wy_end_years):
-                    st.warning(
-                        "WY 2026 is incomplete in the current dataset."
-                    )
 
                 effective_min_valid = (
                     100
@@ -1128,6 +1162,15 @@ else:
         index=0,
     )
 
+    records_to_show = st.number_input(
+        "Number of records to show",
+        min_value=1,
+        max_value=136,
+        value=5,
+        step=1,
+        help="Shows the N lowest and N highest periods. 136 covers all complete years from WY 1890 through WY 2025.",
+    )
+
     if extreme_type == "Water Years":
         run_extremes = st.button(
             "🏆 Search Water-Year Records",
@@ -1208,6 +1251,7 @@ else:
                             run_lightweight_water_year_records(
                                 region_ids,
                                 min_valid_days=100,
+                                limit=int(records_to_show),
                             )
                             if region_ids else None
                         )
@@ -1215,6 +1259,7 @@ else:
                     statewide_records = run_lightweight_water_year_records(
                         statewide_ids,
                         min_valid_days=100,
+                        limit=int(records_to_show),
                     )
 
             elif extreme_type == "Recurring Seasonal / Custom Calendar Stretch":
@@ -1247,6 +1292,7 @@ else:
                                 extreme_start_mmdd,
                                 extreme_end_mmdd,
                                 min_valid_ratio=0.50,
+                                limit=int(records_to_show),
                             )
                             if region_ids else None
                         )
@@ -1256,6 +1302,7 @@ else:
                         extreme_start_mmdd,
                         extreme_end_mmdd,
                         min_valid_ratio=0.50,
+                        limit=int(records_to_show),
                     )
 
             else:
@@ -1275,6 +1322,7 @@ else:
                                 region_ids,
                                 window_days,
                                 min_valid_ratio=0.70,
+                                limit=int(records_to_show),
                             )
                             if region_ids else None
                         )
@@ -1283,130 +1331,142 @@ else:
                         statewide_ids,
                         window_days,
                         min_valid_ratio=0.70,
+                        limit=int(records_to_show),
                     )
 
-            def get_record_stats(records):
+            def get_ranked_records(records):
                 if records is None or records.empty:
                     return None
 
+                result = records.copy()
+
                 if extreme_type == "Water Years":
-                    low = records.loc[records["precip"].idxmin()]
-                    high = records.loc[records["precip"].idxmax()]
-                    return {
-                        "lowest_period": f"WY {int(low['wy_end_year'])}",
-                        "lowest_precip": float(low["precip"]),
-                        "lowest_stations": int(low["station_count"]),
-                        "highest_period": f"WY {int(high['wy_end_year'])}",
-                        "highest_precip": float(high["precip"]),
-                        "highest_stations": int(high["station_count"]),
-                    }
-
-                if extreme_type == "Recurring Seasonal / Custom Calendar Stretch":
-                    low = records.loc[records["precip"].idxmin()]
-                    high = records.loc[records["precip"].idxmax()]
-                    return {
-                        "lowest_period": str(int(low["occurrence_year"])),
-                        "lowest_precip": float(low["precip"]),
-                        "lowest_stations": int(low["station_count"]),
-                        "highest_period": str(int(high["occurrence_year"])),
-                        "highest_precip": float(high["precip"]),
-                        "highest_stations": int(high["station_count"]),
-                    }
-
-                low = records[records["record_type"] == "Lowest"].iloc[0]
-                high = records[records["record_type"] == "Highest"].iloc[0]
-
-                def window_label(row):
-                    return (
-                        f"{pd.Timestamp(row['period_start']).strftime('%Y-%m-%d')} "
-                        f"to "
-                        f"{pd.Timestamp(row['period_end']).strftime('%Y-%m-%d')}"
+                    result["period"] = result["wy_end_year"].apply(
+                        lambda y: f"WY {int(y)}"
+                    )
+                elif extreme_type == "Recurring Seasonal / Custom Calendar Stretch":
+                    result["period"] = result["occurrence_year"].apply(
+                        lambda y: str(int(y))
+                    )
+                else:
+                    result["period"] = result.apply(
+                        lambda row: (
+                            f"{pd.Timestamp(row['period_start']).strftime('%Y-%m-%d')} "
+                            f"to "
+                            f"{pd.Timestamp(row['period_end']).strftime('%Y-%m-%d')}"
+                        ),
+                        axis=1,
                     )
 
                 return {
-                    "lowest_period": window_label(low),
-                    "lowest_precip": float(low["precip"]),
-                    "lowest_stations": int(low["station_count"]),
-                    "highest_period": window_label(high),
-                    "highest_precip": float(high["precip"]),
-                    "highest_stations": int(high["station_count"]),
+                    "lowest": (
+                        result[result["record_type"] == "Lowest"]
+                        .sort_values(["precip", "period"])
+                        .head(int(records_to_show))
+                        .reset_index(drop=True)
+                    ),
+                    "highest": (
+                        result[result["record_type"] == "Highest"]
+                        .sort_values(["precip", "period"], ascending=[False, True])
+                        .head(int(records_to_show))
+                        .reset_index(drop=True)
+                    ),
                 }
 
-            def show_record(title, stats):
+            def show_records(title, ranked):
                 st.subheader(title)
 
-                if stats is None:
+                if ranked is None:
                     st.info("No valid periods found.")
                     return
 
-                c1, c2 = st.columns(2)
+                left, right = st.columns(2)
 
-                with c1:
-                    st.metric("Lowest", f'{stats["lowest_precip"]:.2f}"')
-                    st.caption(
-                        f'{stats["lowest_period"]} '
-                        f'({stats["lowest_stations"]} stations)'
+                def render_table(frame):
+                    if frame.empty:
+                        st.info("No valid periods found.")
+                        return
+
+                    display = pd.DataFrame({
+                        "Rank": range(1, len(frame) + 1),
+                        "Precipitation": frame["precip"].map(
+                            lambda x: f'{float(x):.2f}"'
+                        ),
+                        "Period": frame["period"],
+                        "Stations": frame["station_count"].astype(int),
+                    })
+                    st.dataframe(
+                        display,
+                        use_container_width=True,
+                        hide_index=True,
                     )
 
-                with c2:
-                    st.metric("Highest", f'{stats["highest_precip"]:.2f}"')
-                    st.caption(
-                        f'{stats["highest_period"]} '
-                        f'({stats["highest_stations"]} stations)'
-                    )
+                with left:
+                    st.markdown("**Lowest**")
+                    render_table(ranked["lowest"])
+
+                with right:
+                    st.markdown("**Highest**")
+                    render_table(ranked["highest"])
 
             st.header("Regional Records")
 
             for region in selected_regions:
-                show_record(
+                show_records(
                     region,
-                    get_record_stats(region_record_results.get(region)),
+                    get_ranked_records(region_record_results.get(region)),
                 )
 
             st.header("Statewide California Records")
-            show_record(
+            show_records(
                 "All California Stations",
-                get_record_stats(statewide_records),
+                get_ranked_records(statewide_records),
             )
 
             rows = []
 
             for region in selected_regions:
-                stats = get_record_stats(region_record_results.get(region))
-                if stats is None:
+                ranked = get_ranked_records(region_record_results.get(region))
+                if ranked is None:
                     continue
 
-                rows.append({
-                    "Scope": region,
-                    "Record": "Lowest",
-                    "Precip": f'{stats["lowest_precip"]:.2f}"',
-                    "Period": stats["lowest_period"],
-                    "Stations": stats["lowest_stations"],
-                })
-                rows.append({
-                    "Scope": region,
-                    "Record": "Highest",
-                    "Precip": f'{stats["highest_precip"]:.2f}"',
-                    "Period": stats["highest_period"],
-                    "Stations": stats["highest_stations"],
-                })
+                for rank, (_, row) in enumerate(ranked["lowest"].iterrows(), start=1):
+                    rows.append({
+                        "Scope": region,
+                        "Record": f"Lowest #{rank}",
+                        "Precip": f'{float(row["precip"]):.2f}"',
+                        "Period": row["period"],
+                        "Stations": int(row["station_count"]),
+                    })
 
-            stats = get_record_stats(statewide_records)
-            if stats is not None:
-                rows.append({
-                    "Scope": "All California Stations",
-                    "Record": "Lowest",
-                    "Precip": f'{stats["lowest_precip"]:.2f}"',
-                    "Period": stats["lowest_period"],
-                    "Stations": stats["lowest_stations"],
-                })
-                rows.append({
-                    "Scope": "All California Stations",
-                    "Record": "Highest",
-                    "Precip": f'{stats["highest_precip"]:.2f}"',
-                    "Period": stats["highest_period"],
-                    "Stations": stats["highest_stations"],
-                })
+                for rank, (_, row) in enumerate(ranked["highest"].iterrows(), start=1):
+                    rows.append({
+                        "Scope": region,
+                        "Record": f"Highest #{rank}",
+                        "Precip": f'{float(row["precip"]):.2f}"',
+                        "Period": row["period"],
+                        "Stations": int(row["station_count"]),
+                    })
+
+            ranked = get_ranked_records(statewide_records)
+            if ranked is not None:
+                for rank, (_, row) in enumerate(ranked["lowest"].iterrows(), start=1):
+                    rows.append({
+                        "Scope": "All California Stations",
+                        "Record": f"Lowest #{rank}",
+                        "Precip": f'{float(row["precip"]):.2f}"',
+                        "Period": row["period"],
+                        "Stations": int(row["station_count"]),
+                    })
+
+                for rank, (_, row) in enumerate(ranked["highest"].iterrows(), start=1):
+                    rows.append({
+                        "Scope": "All California Stations",
+                        "Record": f"Highest #{rank}",
+                        "Precip": f'{float(row["precip"]):.2f}"',
+                        "Period": row["period"],
+                        "Stations": int(row["station_count"]),
+                    })
 
             if rows:
                 record_table = pd.DataFrame(rows)
