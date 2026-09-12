@@ -569,11 +569,11 @@ def run_lightweight_rolling_records(
     limit=5,
 ):
     """
-    Find rolling-N-day records without returning every rolling window.
+    Find top-N lowest and highest rolling-N-day periods.
 
-    DuckDB performs the station-level RANGE window calculation and immediately
-    aggregates by window start/end. Only the candidate record periods reach
-    pandas.
+    Rolling windows are selected greedily so ranked periods do not overlap.
+    This prevents the results from being dominated by several one-day-shifted
+    versions of the same wet/dry event.
     """
     if not glob.glob("daily_*.parquet") or not matching_ids:
         return None
@@ -635,51 +635,66 @@ def run_lightweight_rolling_records(
             total_precip
         FROM rolling
         WHERE valid_days >= {required}
-    ),
-    period_averages AS (
-        SELECT
-            period_start,
-            period_end,
-            AVG(total_precip) AS precip,
-            COUNT(*) AS station_count
-        FROM valid_windows
-        GROUP BY period_start, period_end
-    ),
-    records AS (
-        SELECT
-            'Lowest' AS record_type,
-            period_start,
-            period_end,
-            precip,
-            station_count
-        FROM period_averages
-        QUALIFY ROW_NUMBER() OVER (
-            ORDER BY precip ASC, period_end ASC
-        ) <= {int(limit)}
-
-        UNION ALL
-
-        SELECT
-            'Highest' AS record_type,
-            period_start,
-            period_end,
-            precip,
-            station_count
-        FROM period_averages
-        QUALIFY ROW_NUMBER() OVER (
-            ORDER BY precip DESC, period_end ASC
-        ) <= {int(limit)}
     )
-    SELECT *
-    FROM records
-    ORDER BY record_type,
-             CASE WHEN record_type = 'Lowest' THEN precip END ASC,
-             CASE WHEN record_type = 'Highest' THEN precip END DESC,
-             period_end ASC
+    SELECT
+        period_start,
+        period_end,
+        AVG(total_precip) AS precip,
+        COUNT(*) AS station_count
+    FROM valid_windows
+    GROUP BY period_start, period_end
+    ORDER BY period_end
     """
 
     with duckdb.connect() as con:
-        return con.execute(sql).df()
+        candidates = con.execute(sql).df()
+
+    if candidates.empty:
+        return None
+
+    # Greedily choose the strongest remaining period whose start is strictly
+    # after the end of the previously selected period. This guarantees that
+    # selected windows do not overlap.
+    candidates["period_start"] = pd.to_datetime(candidates["period_start"])
+    candidates["period_end"] = pd.to_datetime(candidates["period_end"])
+
+    def select_distinct(frame, ascending):
+        ordered = frame.sort_values(
+            ["precip", "period_end"],
+            ascending=[ascending, True],
+        )
+
+        selected = []
+        next_allowed_start = None
+
+        for _, row in ordered.iterrows():
+            if next_allowed_start is None or row["period_start"] > next_allowed_start:
+                selected.append(row)
+                next_allowed_start = row["period_end"]
+
+                if len(selected) >= int(limit):
+                    break
+
+        if not selected:
+            return pd.DataFrame(
+                columns=["record_type", "period_start", "period_end",
+                         "precip", "station_count"]
+            )
+
+        result = pd.DataFrame(selected).reset_index(drop=True)
+        result.insert(
+            0,
+            "record_type",
+            "Lowest" if ascending else "Highest",
+        )
+        return result[
+            ["record_type", "period_start", "period_end", "precip", "station_count"]
+        ]
+
+    lowest = select_distinct(candidates, ascending=True)
+    highest = select_distinct(candidates, ascending=False)
+
+    return pd.concat([lowest, highest], ignore_index=True)
 
 
 
@@ -869,7 +884,7 @@ if analysis_mode == "Comparison Mode":
                 # compare.py expects the starting year:
                 # 1997-07-01 through 1998-06-30 is passed as 1997.
                 engine_years = [y - 1 for y in wy_end_years]
-
+                
                 effective_min_valid = (
                     100
                     if any(y < 1950 for y in wy_end_years)
