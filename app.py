@@ -282,7 +282,7 @@ st.markdown(
 )
 
 st.info(
-    "WY labels use the water-year convention: WY 1994 is displayed as "
+    "WY labels use the water-year convention: WY 1995 is displayed as "
     "**1994-95**."
 )
 
