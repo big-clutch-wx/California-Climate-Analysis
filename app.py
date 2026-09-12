@@ -110,9 +110,9 @@ if run_analysis:
                                         station_id,
                                         station_name,
                                         COUNT(*) as total_days,
-                                        SUM(CASE WHEN "{col_name}" IS NOT NULL THEN 1 ELSE 0 END) as valid_days,
-                                        ROUND(AVG(CAST(COALESCE("{col_name}", 0) AS FLOAT)), 2) as avg_value,
-                                        ROUND(MAX(CAST(COALESCE("{col_name}", 0) AS FLOAT)), 2) as max_value
+                                        SUM(CASE WHEN "{col_name}" IS NOT NULL AND "{col_name}" != 'M' THEN 1 ELSE 0 END) as valid_days,
+                                        ROUND(AVG(TRY_CAST("{col_name}" AS FLOAT)), 2) as avg_value,
+                                        ROUND(MAX(TRY_CAST("{col_name}" AS FLOAT)), 2) as max_value
                                     FROM read_parquet('{parquet_pattern}', union_by_name=true)
                                     WHERE CAST(date AS DATE) >= DATE '{start_date}' 
                                       AND CAST(date AS DATE) <= DATE '{end_date}'
