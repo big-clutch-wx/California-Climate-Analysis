@@ -247,7 +247,7 @@ def build_statewide_summary(df_res):
 # Sidebar
 # ---------------------------------------------------------------------------
 
-st.sidebar.title("🌧️ California Climate")
+st.sidebar.title("California Climate")
 st.sidebar.caption("California precipitation analysis")
 
 st.sidebar.markdown("---")
@@ -292,7 +292,7 @@ st.sidebar.caption(f"Data directory: `{DATA_DIR}`")
 # Main page
 # ---------------------------------------------------------------------------
 
-st.title("🌧️ California Precipitation Analysis")
+st.title("California Precipitation Analysis")
 
 if not selected_regions:
     st.warning("Select at least one hydrological region.")
@@ -1428,8 +1428,7 @@ else:
                     )
 
             st.success(
-                "Extremes / Records search complete using memory-efficient "
-                "DuckDB aggregation."
+                "Extremes / Records search complete
             )
 
         except FileNotFoundError as exc:
@@ -1454,7 +1453,7 @@ with st.expander("ℹ️ About This Tool"):
         **Web-app modes:** Comparison Mode and Extremes / Records
 
         The Water Year calculations are performed by the same DuckDB
-        calculation engine used by `compare(3).py`.
+        calculation engine used by `compare.py`.
 
         The results include:
 
