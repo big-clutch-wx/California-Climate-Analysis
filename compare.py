@@ -74,6 +74,79 @@ def get_official_regions():
         'Colorado River': {
             'avg_precip': 5.34,
             'polygon': [(33.4073534, -114.7125564), (33.5613144, -114.5232322), (33.93216, -114.5265703), (34.1106375, -114.418076), (34.2978507, -114.1280103), (34.4775174, -114.4076641), (34.8319974, -114.5847724), (34.8764914, -114.6379122), (35.005689, -114.6252817), (35.3944509, -115.1219644), (35.2332269, -115.4522383), (34.8570146, -115.6234406), (34.8350224, -115.9188037), (34.7815284, -116.0703595), (34.6846658, -116.0108026), (34.6774736, -116.2702705), (34.7888029, -116.2952263), (34.7336012, -116.5512818), (34.7765124, -116.9988864), (34.4817115, -117.0769542), (34.3849935, -117.0018596), (34.3023356, -116.8339109), (34.296139, -116.7989238), (34.1707188, -116.6912068), (34.0992638, -116.8330984), (34.0596029, -116.9122667), (33.8757089, -116.9246715), (33.8160931, -116.6732156), (33.561693, -116.55315), (33.4948028, -116.6747532), (33.2099988, -116.482266), (33.2064689, -116.6345239), (33.0570605, -116.5786469), (32.869087, -116.4068149), (32.5982001, -116.3464382), (32.7032734, -114.7260471), (32.7466288, -114.7029812), (32.7586209, -114.527175), (33.0117032, -114.4917616), (33.0597579, -114.6817855), (33.4073534, -114.7125564)]
+        },
+        'California': {
+            'avg_precip': 23.50,
+            'polygon': [
+                (41.999846, -124.329427),
+                (42.0072313, -122.1649068),
+                (41.9949292, -119.9995344),
+                (39.0032796, -120.0065188),
+                (38.0430817, -118.6327424),
+                (37.0559138, -117.2790263),
+                (36.0380445, -115.9422861),
+                (35.0020057, -114.6330035),
+                (34.877744, -114.6358458),
+                (34.8602523, -114.6251336),
+                (34.8426116, -114.5942869),
+                (34.8303479, -114.583587),
+                (34.7621103, -114.5483096),
+                (34.7250807, -114.4913358),
+                (34.7146301, -114.4857028),
+                (34.7130425, -114.4715399),
+                (34.5270506, -114.3804118),
+                (34.452105, -114.3856289),
+                (34.4465736, -114.3651329),
+                (34.449032, -114.335693),
+                (34.3651759, -114.2236662),
+                (34.3504232, -114.178497),
+                (34.3048763, -114.1393681),
+                (34.2582477, -114.1351528),
+                (34.2590556, -114.1636627),
+                (34.2041173, -114.2266064),
+                (34.1885659, -114.2251142),
+                (34.1671924, -114.2918914),
+                (34.1376926, -114.3229016),
+                (34.1338545, -114.3534772),
+                (34.1210027, -114.3626641),
+                (34.1084057, -114.4175842),
+                (34.0756446, -114.436712),
+                (34.0302623, -114.4352629),
+                (34.0143114, -114.4458137),
+                (33.9361024, -114.535582),
+                (33.8687587, -114.5034521),
+                (33.7324573, -114.5113863),
+                (33.6222539, -114.5298775),
+                (33.6126953, -114.5220973),
+                (33.6069212, -114.529148),
+                (33.5895945, -114.5411298),
+                (33.553432, -114.5238878),
+                (33.4119898, -114.6475764),
+                (33.4084773, -114.7229674),
+                (33.3301451, -114.7015725),
+                (33.2087394, -114.6753954),
+                (33.0889014, -114.7063166),
+                (33.0336793, -114.6625652),
+                (33.0301439, -114.5212958),
+                (32.9735583, -114.4928311),
+                (32.9740005, -114.4696376),
+                (32.8452754, -114.4685635),
+                (32.8001903, -114.5302788),
+                (32.7580312, -114.5260709),
+                (32.7345144, -114.5825662),
+                (32.7344381, -114.6148572),
+                (32.7287104, -114.6157511),
+                (32.7291841, -114.6266379),
+                (32.7313101, -114.6330045),
+                (32.7335808, -114.6577429),
+                (32.7444844, -114.7017829),
+                (32.7184436, -114.7202306),
+                (32.6295885, -115.9806827),
+                (32.5272538, -117.2403759),
+                (32.5833171, -120.4355963),
+                (40.0333996, -125.3008105),
+                (41.999846, -124.329427)
+            ]
         }
     }
 
@@ -328,7 +401,7 @@ def run_duckdb_water_years(matching_ids, years, min_valid_days=200):
         union_queries.append(f"""
             SELECT 
                 '{wy}' as period_id,
-                '{wy}-{str(wy + 1)[-2:]}' as period_label,
+                'WY {wy}' as period_label,
                 station_id,
                 CAST(date AS DATE) as date,
                 CASE 
@@ -401,268 +474,6 @@ def run_duckdb_water_years(matching_ids, years, min_valid_days=200):
     con.close()
     return df_res
 
-
-def run_duckdb_rolling_extremes(matching_ids, window_days, min_valid_ratio=0.70):
-    """Find every rolling N-day precipitation total in the dataset."""
-    con = duckdb.connect()
-    if not glob.glob('daily_*.parquet'):
-        print("No daily_*.parquet files found in current directory.")
-        return None
-
-    ids_str = ", ".join([f"'{s}'" for s in matching_ids])
-
-    sql = f"""
-    WITH daily AS (
-        SELECT
-            station_id,
-            CAST(date AS DATE) AS date,
-            CASE
-                WHEN precip IS NULL OR TRIM(CAST(precip AS VARCHAR)) IN ('', 'M') THEN NULL
-                WHEN TRIM(CAST(precip AS VARCHAR)) = 'T' THEN 0.0
-                ELSE TRY_CAST(TRIM(REGEXP_REPLACE(CAST(precip AS VARCHAR), '[AS]$', '')) AS DOUBLE)
-            END AS parsed_precip
-        FROM read_parquet('daily_*.parquet', union_by_name=true)
-        WHERE station_id IN ({ids_str})
-          AND CAST(date AS DATE) >= DATE '1890-01-01'
-          AND CAST(date AS DATE) <= DATE '2026-12-31'
-    ),
-    rolling AS (
-        SELECT
-            station_id,
-            date - INTERVAL '{window_days - 1} days' AS period_start,
-            date AS period_end,
-            SUM(parsed_precip) OVER (
-                PARTITION BY station_id
-                ORDER BY date
-                RANGE BETWEEN INTERVAL '{window_days - 1} days' PRECEDING AND CURRENT ROW
-            ) AS total_precip,
-            COUNT(parsed_precip) OVER (
-                PARTITION BY station_id
-                ORDER BY date
-                RANGE BETWEEN INTERVAL '{window_days - 1} days' PRECEDING AND CURRENT ROW
-            ) AS valid_days
-        FROM daily
-        WHERE parsed_precip IS NOT NULL
-    )
-    SELECT *
-    FROM rolling
-    WHERE valid_days >= CEIL({window_days} * {min_valid_ratio})
-    """
-
-    df = con.execute(sql).df()
-    con.close()
-    return df
-
-
-def print_extreme_table(df, title, selected_regions=None, station_region_map=None):
-    """Print lowest/highest period totals, optionally split by region."""
-    if df is None or df.empty:
-        print(f"\n{title}: no valid periods found.")
-        return
-
-    print("\n" + "=" * 95)
-    print(title)
-    print("=" * 95)
-
-    if selected_regions is not None:
-        df = df.copy()
-        df['region'] = df['station_id'].map(station_region_map)
-
-        for region in selected_regions:
-            reg = df[df['region'] == region]
-            if reg.empty:
-                print(f"\n{region}: no valid periods found.")
-                continue
-
-            stats = reg.groupby('period_label').agg(
-                precip=('total_precip', 'mean'),
-                station_count=('station_id', 'count')
-            ).reset_index()
-
-            low = stats.loc[stats['precip'].idxmin()]
-            high = stats.loc[stats['precip'].idxmax()]
-
-            print(f"\n{region}")
-            print(
-                f"  LOWEST:  {low['precip']:.2f}\" — "
-                f"{low['period_label']} ({int(low['station_count'])} stations)"
-            )
-            print(
-                f"  HIGHEST: {high['precip']:.2f}\" — "
-                f"{high['period_label']} ({int(high['station_count'])} stations)"
-            )
-    else:
-        stats = df.groupby('period_label').agg(
-            precip=('total_precip', 'mean'),
-            station_count=('station_id', 'count')
-        ).reset_index()
-
-        low = stats.loc[stats['precip'].idxmin()]
-        high = stats.loc[stats['precip'].idxmax()]
-
-        print(
-            f"  LOWEST:  {low['precip']:.2f}\" — "
-            f"{low['period_label']} ({int(low['station_count'])} stations)"
-        )
-        print(
-            f"  HIGHEST: {high['precip']:.2f}\" — "
-            f"{high['period_label']} ({int(high['station_count'])} stations)"
-        )
-
-
-def extreme_mode(selected_regions, regions, station_region_map, metadata):
-    """Interactive all-records/extremes mode."""
-    statewide_ids = set(metadata.keys())
-    regional_ids = {
-        sid for sid, region in station_region_map.items()
-        if region in selected_regions
-    }
-
-    print("\nExtremes / Records Mode")
-    print("Searches the complete 1890-2026 dataset for the lowest and highest")
-    print("precipitation totals for the selected period definition.")
-    print("\nPeriod type:")
-    print("  1. Water Years (July 1 - June 30)")
-    print("  2. Recurring Seasonal / Custom Calendar Stretch (e.g. Nov 12 - Feb 18)")
-    print("  3. Rolling N-Day Window (e.g. 1, 7, 30, 90, 365 days)")
-
-    choice = input("Select period type (1, 2, or 3): ").strip()
-
-    if choice == '1':
-        # WY 2026 is incomplete, so records use complete WYs through WY 2025.
-        years = list(range(1890, 2026))
-        print("\nSearching complete water years WY 1890 through WY 2025...")
-
-        regional_df = run_duckdb_water_years(
-            regional_ids, years, min_valid_days=100
-        )
-        statewide_df = run_duckdb_water_years(
-            statewide_ids, years, min_valid_days=100
-        )
-
-        print_extreme_table(
-            regional_df,
-            "REGIONAL WATER-YEAR RECORDS",
-            selected_regions,
-            station_region_map
-        )
-        print_extreme_table(
-            statewide_df,
-            "STATEWIDE CALIFORNIA WATER-YEAR RECORDS"
-        )
-
-    elif choice == '2':
-        start_mmdd = input(
-            "Enter start date (MM-DD, e.g., 11-12): "
-        ).strip()
-        end_mmdd = input(
-            "Enter end date (MM-DD, e.g., 02-18): "
-        ).strip()
-
-        try:
-            sm, sd = map(int, start_mmdd.split('-'))
-            em, ed = map(int, end_mmdd.split('-'))
-
-            datetime(2001, sm, sd)
-            datetime(2001, em, ed)
-        except ValueError:
-            print("Invalid MM-DD date.")
-            return
-
-        # Cross-year stretches ending in the following calendar year
-        # cannot use a 2026 start because their ending portion would
-        # extend beyond the dataset.
-        cross_year = (sm, sd) > (em, ed)
-        last_start_year = 2025 if cross_year else 2026
-        years = list(range(1890, last_start_year + 1))
-
-        print(
-            f"\nSearching every occurrence from 1890 through "
-            f"{last_start_year}..."
-        )
-
-        regional_df = run_duckdb_custom_stretches(
-            regional_ids,
-            start_mmdd,
-            end_mmdd,
-            years,
-            min_valid_ratio=0.50,
-            strict_consistency=False
-        )
-        statewide_df = run_duckdb_custom_stretches(
-            statewide_ids,
-            start_mmdd,
-            end_mmdd,
-            years,
-            min_valid_ratio=0.50,
-            strict_consistency=False
-        )
-
-        print_extreme_table(
-            regional_df,
-            "REGIONAL SEASONAL / CUSTOM-STRETCH RECORDS",
-            selected_regions,
-            station_region_map
-        )
-        print_extreme_table(
-            statewide_df,
-            "STATEWIDE CALIFORNIA SEASONAL / CUSTOM-STRETCH RECORDS"
-        )
-
-    elif choice == '3':
-        raw_days = input(
-            "Enter rolling window length in days (e.g. 1, 7, 30, 90, 365): "
-        ).strip()
-
-        try:
-            window_days = int(raw_days)
-            if not 1 <= window_days <= 3650:
-                raise ValueError
-        except ValueError:
-            print("Window length must be an integer from 1 to 3650.")
-            return
-
-        print(
-            f"\nSearching every {window_days}-day window from "
-            "1890-01-01 through 2026-12-31..."
-        )
-
-        regional_df = run_duckdb_rolling_extremes(
-            regional_ids,
-            window_days,
-            min_valid_ratio=0.70
-        )
-        statewide_df = run_duckdb_rolling_extremes(
-            statewide_ids,
-            window_days,
-            min_valid_ratio=0.70
-        )
-
-        # Convert rolling result into the same shape used by the
-        # normal extreme table.
-        for df in (regional_df, statewide_df):
-            if df is not None and not df.empty:
-                df['period_label'] = (
-                    df['period_start'].dt.strftime('%Y-%m-%d')
-                    + " to "
-                    + df['period_end'].dt.strftime('%Y-%m-%d')
-                )
-
-        print_extreme_table(
-            regional_df,
-            f"REGIONAL {window_days}-DAY ROLLING RECORDS",
-            selected_regions,
-            station_region_map
-        )
-        print_extreme_table(
-            statewide_df,
-            f"STATEWIDE CALIFORNIA {window_days}-DAY ROLLING RECORDS"
-        )
-
-    else:
-        print("Invalid extreme-mode selection.")
-
-
 def main():
     print("="*95)
     print("California Precipitation - Multi-Region & Multi-Period Comparison (DuckDB)")
@@ -718,15 +529,6 @@ def main():
         count = sum(1 for r in station_region_map.values() if r == reg)
         print(f"  - {reg:<20}: {count} stations")
     
-    print("\nAnalysis Mode:")
-    print("  1. Comparison Mode")
-    print("  2. Extremes / Records")
-    analysis_mode = input("Select mode (1 or 2): ").strip()
-
-    if analysis_mode == '2':
-        extreme_mode(selected_regions, regions, station_region_map, metadata)
-        return
-
     print("\nComparison Mode:")
     print("  1. Full Water Years (July 1 - June 30)")
     print("  2. Recurring Seasonal Stretch Across Selected Years (e.g., Nov 12 - Feb 18)")
@@ -800,7 +602,7 @@ def main():
         print(f"Using min_valid_ratio={min_ratio} ({'historical data' if has_pre_1950 else 'modern data'})")
         df_res = run_duckdb_custom_stretches(matching_ids, start_mmdd, end_mmdd, years, min_valid_ratio=min_ratio, strict_consistency=strict_consistency)
     else:
-        raw_years = input("\nEnter water years (e.g., '1982, 1997, 2015' or '2015-2020'): ")
+        raw_years = input("\nEnter water years (e.g., '1980, 1995, 2010' or '2015-2020'): ")
         years = parse_years_input(raw_years)
         
         print("\nQuerying daily Parquet files with DuckDB...")
@@ -816,17 +618,6 @@ def main():
 
     # Map station to region
     df_res['region'] = df_res['station_id'].map(station_region_map)
-
-    # --- OPTION A: Filter to stations present across ALL selected periods ---
-    all_periods = df_res['period_label'].unique()
-    stations_in_all_periods = (
-        df_res.groupby('station_id')['period_label']
-        .nunique()
-        .loc[lambda x: x == len(all_periods)]
-        .index
-    )
-    df_res = df_res[df_res['station_id'].isin(stations_in_all_periods)]
-    # ------------------------------------------------------------------------
 
     # Aggregate by region and period
     summary = df_res.groupby(['region', 'period_id', 'period_label']).agg(
@@ -874,29 +665,72 @@ def main():
         for _, row in region_data.iterrows():
             print(f"{row['period_label']:<30} {row['avg_precip']:>10.2f}\" {row['pct_base']:>9.1f}%")
     
-    # Add statewide average if multiple regions selected
+    # Add statewide average if multiple regions selected.
+    # Statewide is based on ALL stations inside the California polygon,
+    # rather than only stations belonging to the selected hydrological regions.
+    statewide_df = None
     if len(selected_regions) > 1:
+        california_polygon = regions['California']['polygon']
+        california_ids = {
+            sid for sid, meta in metadata.items()
+            if point_in_polygon((meta['lat'], meta['lon']), california_polygon)
+        }
+
+        if california_ids:
+            print(f"\nQuerying statewide California data ({len(california_ids)} stations)...")
+
+            if mode_choice == '3':
+                statewide_df = run_duckdb_distinct_ranges(
+                    california_ids,
+                    date_ranges
+                )
+            elif mode_choice == '2':
+                has_pre_1950 = any(y < 1950 for y in years)
+                min_ratio = 0.50 if has_pre_1950 else 0.70
+                statewide_df = run_duckdb_custom_stretches(
+                    california_ids,
+                    start_mmdd,
+                    end_mmdd,
+                    years,
+                    min_valid_ratio=min_ratio,
+                    strict_consistency=True
+                )
+            else:
+                has_pre_1950 = any(y < 1950 for y in years)
+                min_valid = 100 if has_pre_1950 else 200
+                statewide_df = run_duckdb_water_years(
+                    california_ids,
+                    years,
+                    min_valid_days=min_valid
+                )
+
         print("\n" + "="*70)
-        print("STATEWIDE AVERAGE (All Stations)")
+        print("STATEWIDE AVERAGE (California Stations)")
         print("=" * 70)
-        
-        # Calculate TRUE statewide average from ALL individual stations in df_res
-        # Group by period and calculate mean precip across ALL stations
-        statewide_periods = df_res.groupby('period_label').agg({
-            'total_precip': 'mean'
-        }).reset_index()
-        statewide_periods.columns = ['period_label', 'avg_precip']
-        
-        # Calculate % of statewide WY base
-        statewide_wy_base = 26.0  # CA statewide average for full water year
-        statewide_periods['pct_base'] = (statewide_periods['avg_precip'] / statewide_wy_base) * 100
-        
-        print(f"{'Period':<30} {'Avg Precip':>11} {'% WY Base':>10}")
-        print("-" * 55)
-        
-        for _, row in statewide_periods.iterrows():
-            print(f"{row['period_label']:<30} {row['avg_precip']:>10.2f}\" {row['pct_base']:>9.1f}%")
-    
+
+        if statewide_df is None or statewide_df.empty:
+            print("No consistent statewide California station data found.")
+        else:
+            statewide_periods = statewide_df.groupby('period_label').agg({
+                'total_precip': 'mean'
+            }).reset_index()
+            statewide_periods.columns = ['period_label', 'avg_precip']
+
+            statewide_wy_base = regions['California']['avg_precip']
+            statewide_periods['pct_base'] = (
+                statewide_periods['avg_precip'] / statewide_wy_base
+            ) * 100
+
+            print(f"{'Period':<30} {'Avg Precip':>11} {'% CA Base':>10}")
+            print("-" * 55)
+
+            for _, row in statewide_periods.iterrows():
+                print(
+                    f"{row['period_label']:<30} "
+                    f"{row['avg_precip']:>10.2f}\" "
+                    f"{row['pct_base']:>9.1f}%"
+                )
+
     print("\n" + "="*70)
 
     # Multi-Region side-by-side view if multiple regions selected
@@ -907,8 +741,9 @@ def main():
         piv_precip = summary.pivot(index='region', columns='period_label', values='avg_precip')
         
         # Add statewide average row (calculated from ALL stations, not region means)
-        statewide_avg = df_res.groupby('period_label')['total_precip'].mean()
-        piv_precip.loc['STATEWIDE AVERAGE'] = statewide_avg
+        if statewide_df is not None and not statewide_df.empty:
+            statewide_avg = statewide_df.groupby('period_label')['total_precip'].mean()
+            piv_precip.loc['STATEWIDE AVERAGE'] = statewide_avg
         
         # Format to 2 decimal places
         piv_precip_formatted = piv_precip.round(2)
@@ -942,17 +777,15 @@ def main():
         cols_to_display = ['station_name', 'region'] + precip_cols
         piv_display = piv_precip[cols_to_display].copy()
         
-        # Drop rows with N/A / NaN values in any period column
-        piv_display = piv_display.dropna(subset=precip_cols)
-        
         print(f"\n--- All {len(piv_display)} Stations Detail Table ---")
-        
-        # Extract year range from period label
+        # Extract year range from period label (e.g., "Dec 01, 1955 - Jan 31, 1956" -> "1955-56")
         year_headers = []
         for p in precip_cols:
+            # Extract years from period label like "Dec 01, 1955 - Jan 31, 1956"
+            import re
             years = re.findall(r'\d{4}', p)
             if len(years) >= 2:
-                year_range = f"{years[0][-2:]}-{years[1][-2:]}"
+                year_range = f"{years[0][-2:]}-{years[1][-2:]}"  # e.g., "1955-1956" -> "55-56"
             elif len(years) == 1:
                 year_range = years[0]
             else:
@@ -963,7 +796,7 @@ def main():
         print("-" * 150)
         
         for idx, row in piv_display.iterrows():
-            precip_str = ' '.join([f"{row[p]:>10.2f}" for p in precip_cols])
+            precip_str = ' '.join([f"{row[p]:>10.2f}" if pd.notna(row[p]) else f"{'N/A':>10}" for p in precip_cols])
             print(f"{row['station_name']:<40} {row['region']:<20} {precip_str}")
 
 if __name__ == "__main__":
