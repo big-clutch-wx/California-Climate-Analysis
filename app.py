@@ -1254,7 +1254,19 @@ else:
             )
 
             regional_ids = set(station_region_map.keys())
-            statewide_ids = set(metadata.keys())
+
+            # True California statewide scope: filter stations by the
+            # California state polygon rather than assuming every station in
+            # stations_meta.jsonl is inside California.
+            california_polygon = regions["California"]["polygon"]
+            statewide_ids = {
+                sid
+                for sid, meta in metadata.items()
+                if engine.point_in_polygon(
+                    (meta["lat"], meta["lon"]),
+                    california_polygon,
+                )
+            }
 
             if not regional_ids:
                 st.error("No stations were found inside the selected region(s).")
