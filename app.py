@@ -1135,34 +1135,10 @@ if analysis_mode == "Comparison Mode":
                 )
 
             # ---------------------------------------------------------------
-            # Statewide + matrix
+            # Side-by-side regional matrix
             # ---------------------------------------------------------------
 
             if len(selected_regions) > 1:
-                st.header("Statewide Average (All Stations)")
-
-                statewide = build_statewide_summary(df_res)
-                statewide_table = statewide[
-                    ["period_label", "avg_precip", "pct_base"]
-                ].copy()
-                statewide_table.columns = [
-                    "Period",
-                    "Avg Precip",
-                    "% WY Base",
-                ]
-                statewide_table["Avg Precip"] = statewide_table[
-                    "Avg Precip"
-                ].map(lambda x: f'{x:.2f}"')
-                statewide_table["% WY Base"] = statewide_table[
-                    "% WY Base"
-                ].map(lambda x: f"{x:.1f}%")
-
-                st.dataframe(
-                    statewide_table,
-                    use_container_width=True,
-                    hide_index=True,
-                )
-
                 st.header("Side-by-Side Regional Precipitation Matrix (Inches)")
 
                 matrix = summary.pivot(
@@ -1171,10 +1147,21 @@ if analysis_mode == "Comparison Mode":
                     values="avg_precip",
                 )
 
-                statewide_avg = statewide_df.groupby("period_label")[
-                    "total_precip"
-                ].mean()
-                matrix.loc["STATEWIDE AVERAGE"] = statewide_avg
+                # California is a separate statewide scope. Include it in the
+                # matrix when selected, but do not calculate a second
+                # "statewide average" from the hydrological regions.
+                if california_selected and statewide_df is not None and not statewide_df.empty:
+                    california_avg = statewide_df.groupby("period_label")[
+                        "total_precip"
+                    ].mean()
+                    matrix.loc["California"] = california_avg
+
+                # Keep California first when it is present.
+                if "California" in matrix.index:
+                    ordered = ["California"] + [
+                        r for r in matrix.index if r != "California"
+                    ]
+                    matrix = matrix.reindex(ordered)
 
                 st.dataframe(
                     matrix.round(2),
