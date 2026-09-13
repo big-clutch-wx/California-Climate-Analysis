@@ -239,7 +239,7 @@ def build_statewide_summary(df_res):
         .reset_index(name="avg_precip")
     )
 
-    statewide["pct_base"] = (statewide["avg_precip"] / 26.0) * 100
+    statewide["pct_base"] = (statewide["avg_precip"] / 23.5) * 100
     return statewide
 
 
@@ -860,21 +860,47 @@ if analysis_mode == "Comparison Mode":
         try:
             metadata = load_metadata(str(DATA_DIR))
 
+            # California is a statewide scope, not a hydrological region.
+            # Exclude it from station-to-region assignment so its polygon
+            # cannot claim every station before the actual hydrological
+            # regions are tested.
+            hydrological_regions = [
+                r for r in selected_regions if r != "California"
+            ]
+
             station_region_map = build_region_map(
                 tuple(metadata.items()),
-                tuple(selected_regions),
+                tuple(hydrological_regions),
             )
             matching_ids = set(station_region_map.keys())
 
-            if not matching_ids:
-                st.error("No stations were found inside the selected region(s).")
+            # True California statewide station universe.
+            california_polygon = regions["California"]["polygon"]
+            statewide_ids = {
+                sid
+                for sid, meta in metadata.items()
+                if engine.point_in_polygon(
+                    (meta["lat"], meta["lon"]),
+                    california_polygon,
+                )
+            }
+            california_selected = "California" in selected_regions
+
+            if not matching_ids and not california_selected:
+                st.error("No stations were found inside the selected hydrological region(s).")
+                st.stop()
+
+            if california_selected and not statewide_ids:
+                st.error("No stations were found inside the California state polygon.")
                 st.stop()
 
             # ---------------------------------------------------------------
-            # Run the selected comparison engine
+            # Run the selected comparison engine for hydrological regions
             # ---------------------------------------------------------------
 
-            if comparison_mode == "Full Water Years":
+            if not matching_ids:
+                df_res = pd.DataFrame()
+            elif comparison_mode == "Full Water Years":
                 wy_end_years = parse_years_web(years_input)
 
                 if not wy_end_years:
@@ -952,52 +978,131 @@ if analysis_mode == "Comparison Mode":
                         date_ranges,
                     )
 
-            if df_res is None or df_res.empty:
+            # California is queried separately using the true state polygon.
+            # This keeps statewide results independent of whichever
+            # hydrological regions were selected.
+            statewide_df = None
+            if california_selected:
+                if comparison_mode == "Full Water Years":
+                    with st.spinner(
+                        f"Querying {len(statewide_ids)} California stations..."
+                    ):
+                        statewide_df = engine.run_duckdb_water_years(
+                            statewide_ids,
+                            engine_years,
+                            min_valid_days=effective_min_valid,
+                        )
+                elif comparison_mode == "Recurring Seasonal Stretch":
+                    with st.spinner(
+                        f"Querying {len(statewide_ids)} California stations..."
+                    ):
+                        statewide_df = engine.run_duckdb_custom_stretches(
+                            statewide_ids,
+                            start_mmdd,
+                            end_mmdd,
+                            years,
+                            min_valid_ratio=min_ratio,
+                            strict_consistency=True,
+                        )
+                else:
+                    with st.spinner(
+                        f"Querying {len(statewide_ids)} California stations..."
+                    ):
+                        statewide_df = engine.run_duckdb_distinct_ranges(
+                            statewide_ids,
+                            date_ranges,
+                        )
+
+            if df_res is None:
+                df_res = pd.DataFrame()
+
+            if df_res.empty and not california_selected:
                 st.warning(
                     "No consistent station data found across all specified periods."
                 )
                 st.stop()
 
-            # Map station to hydrological region.
-            df_res["region"] = df_res["station_id"].map(station_region_map)
+            # Map stations to hydrological regions and enforce the same
+            # all-period station intersection used by compare.py.
+            if not df_res.empty:
+                df_res["region"] = df_res["station_id"].map(station_region_map)
 
-            # Always use the intersection of stations across ALL periods.
-            all_periods = df_res["period_label"].unique()
-            stations_in_all_periods = (
-                df_res.groupby("station_id")["period_label"]
-                .nunique()
-                .loc[lambda x: x == len(all_periods)]
-                .index
-            )
-
-            df_res = df_res[
-                df_res["station_id"].isin(stations_in_all_periods)
-            ].copy()
-
-            if df_res.empty:
-                st.warning(
-                    "No stations have valid data in every selected period."
+                all_periods = df_res["period_label"].unique()
+                stations_in_all_periods = (
+                    df_res.groupby("station_id")["period_label"]
+                    .nunique()
+                    .loc[lambda x: x == len(all_periods)]
+                    .index
                 )
-                st.stop()
+
+                df_res = df_res[
+                    df_res["station_id"].isin(stations_in_all_periods)
+                ].copy()
+
+                if df_res.empty and not california_selected:
+                    st.warning(
+                        "No stations have valid data in every selected period."
+                    )
+                    st.stop()
 
             # ---------------------------------------------------------------
             # Regional summary
             # ---------------------------------------------------------------
 
-            summary = build_summary(
-                df_res,
-                regions,
-                station_region_map,
+            summary = (
+                build_summary(df_res, regions, station_region_map)
+                if not df_res.empty
+                else pd.DataFrame(
+                    columns=[
+                        "region", "period_id", "period_label",
+                        "avg_precip", "pct_base", "station_count",
+                    ]
+                )
             )
 
+            regional_station_count = (
+                len(stations_in_all_periods) if not df_res.empty else 0
+            )
             st.success(
-                f"Analysis complete — {len(stations_in_all_periods)} stations "
-                f"have valid data in every selected period."
+                f"Analysis complete — {regional_station_count} stations "
+                "have valid data in every selected period for the "
+                "hydrological-region analysis."
             )
 
             st.header("Regional Comparison Summary Table")
 
-            for region in selected_regions:
+            # California is a separate statewide scope and is always shown
+            # first when selected. It does not consume stations from the
+            # hydrological-region summaries below.
+            if california_selected:
+                ca_summary = (
+                    build_statewide_summary(statewide_df)
+                    if statewide_df is not None and not statewide_df.empty
+                    else pd.DataFrame()
+                )
+                if ca_summary.empty:
+                    st.subheader("California (0 stations)")
+                    st.info("No valid station data for California.")
+                else:
+                    ca_station_count = int(statewide_df["station_id"].nunique())
+                    st.subheader(f"California ({ca_station_count} stations)")
+                    ca_table = ca_summary[
+                        ["period_label", "avg_precip", "pct_base"]
+                    ].copy()
+                    ca_table.columns = ["Period", "Avg Precip", "% WY Avg"]
+                    ca_table["Avg Precip"] = ca_table["Avg Precip"].map(
+                        lambda x: f'{x:.2f}"'
+                    )
+                    ca_table["% WY Avg"] = ca_table["% WY Avg"].map(
+                        lambda x: f"{x:.1f}%"
+                    )
+                    st.dataframe(
+                        ca_table,
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+            for region in hydrological_regions:
                 region_data = (
                     summary[summary["region"] == region]
                     .sort_values("period_id")
@@ -1015,12 +1120,11 @@ if analysis_mode == "Comparison Mode":
                 table = region_data[
                     ["period_label", "avg_precip", "pct_base"]
                 ].copy()
-                table.columns = ["Period", "Avg Precip", "% WY Base"]
-
+                table.columns = ["Period", "Avg Precip", "% WY Avg"]
                 table["Avg Precip"] = table["Avg Precip"].map(
                     lambda x: f'{x:.2f}"'
                 )
-                table["% WY Base"] = table["% WY Base"].map(
+                table["% WY Avg"] = table["% WY Avg"].map(
                     lambda x: f"{x:.1f}%"
                 )
 
@@ -1067,7 +1171,7 @@ if analysis_mode == "Comparison Mode":
                     values="avg_precip",
                 )
 
-                statewide_avg = df_res.groupby("period_label")[
+                statewide_avg = statewide_df.groupby("period_label")[
                     "total_precip"
                 ].mean()
                 matrix.loc["STATEWIDE AVERAGE"] = statewide_avg
@@ -1248,9 +1352,13 @@ else:
         try:
             metadata = load_metadata(str(DATA_DIR))
 
+            hydrological_regions = [
+                r for r in selected_regions if r != "California"
+            ]
+
             station_region_map = build_region_map(
                 tuple(metadata.items()),
-                tuple(selected_regions),
+                tuple(hydrological_regions),
             )
 
             regional_ids = set(station_region_map.keys())
@@ -1268,8 +1376,8 @@ else:
                 )
             }
 
-            if not regional_ids:
-                st.error("No stations were found inside the selected region(s).")
+            if not regional_ids and "California" not in selected_regions:
+                st.error("No stations were found inside the selected hydrological region(s).")
                 st.stop()
 
             # Search each selected hydrological region independently.
@@ -1279,11 +1387,11 @@ else:
 
             if extreme_type == "Water Years":
                 with st.spinner(
-                    f"Searching {len(selected_regions)} region(s) and "
+                    f"Searching {len(hydrological_regions)} region(s) and "
                     f"{len(statewide_ids)} statewide stations across "
                     "WY 1890–2025..."
                 ):
-                    for region in selected_regions:
+                    for region in hydrological_regions:
                         region_ids = {
                             sid for sid, mapped_region in station_region_map.items()
                             if mapped_region == region
@@ -1319,10 +1427,10 @@ else:
                     st.stop()
 
                 with st.spinner(
-                    f"Searching {len(selected_regions)} region(s) and "
+                    f"Searching {len(hydrological_regions)} region(s) and "
                     f"{len(statewide_ids)} statewide stations..."
                 ):
-                    for region in selected_regions:
+                    for region in hydrological_regions:
                         region_ids = {
                             sid for sid, mapped_region in station_region_map.items()
                             if mapped_region == region
@@ -1353,7 +1461,7 @@ else:
                     f"Searching {window_days}-day rolling records across "
                     "1890–2026..."
                 ):
-                    for region in selected_regions:
+                    for region in hydrological_regions:
                         region_ids = {
                             sid for sid, mapped_region in station_region_map.items()
                             if mapped_region == region
@@ -1452,7 +1560,7 @@ else:
 
             st.header("Regional Records")
 
-            for region in selected_regions:
+            for region in hydrological_regions:
                 show_records(
                     region,
                     get_ranked_records(region_record_results.get(region)),
@@ -1466,7 +1574,7 @@ else:
 
             rows = []
 
-            for region in selected_regions:
+            for region in hydrological_regions:
                 ranked = get_ranked_records(region_record_results.get(region))
                 if ranked is None:
                     continue
