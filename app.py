@@ -131,26 +131,6 @@ def parse_years_web(value: str):
     return years
 
 
-def relabel_water_year_output(df):
-    """Convert the engine's starting-year WY labels to ending-year labels.
-
-    The DuckDB engine represents WY 1998 as the interval starting in 1997
-    (1997-07-01 through 1998-06-30), so it returns period_id/period_label
-    based on 1997. The web UI accepts the standard ending-year convention,
-    so its results must display WY 1998 rather than WY 1997.
-    """
-    if df is None or df.empty:
-        return df
-
-    out = df.copy()
-    out["period_id"] = pd.to_numeric(out["period_id"], errors="coerce") + 1
-    out["period_id"] = out["period_id"].astype("Int64")
-    out["period_label"] = out["period_id"].map(
-        lambda y: f"WY {int(y)}" if pd.notna(y) else "WY"
-    )
-    return out
-
-
 def format_wy_columns(columns):
     """
     Convert compare(3).py period labels such as 1994-95 into the
@@ -946,7 +926,6 @@ if analysis_mode == "Comparison Mode":
                         engine_years,
                         min_valid_days=effective_min_valid,
                     )
-                    df_res = relabel_water_year_output(df_res)
 
             elif comparison_mode == "Recurring Seasonal Stretch":
                 years = parse_years_web(years_input)
@@ -1013,7 +992,6 @@ if analysis_mode == "Comparison Mode":
                             engine_years,
                             min_valid_days=effective_min_valid,
                         )
-                        statewide_df = relabel_water_year_output(statewide_df)
                 elif comparison_mode == "Recurring Seasonal Stretch":
                     with st.spinner(
                         f"Querying {len(statewide_ids)} California stations..."
@@ -1503,9 +1481,23 @@ else:
                         lambda y: f"WY {int(y)}"
                     )
                 elif extreme_type == "Recurring Seasonal / Custom Calendar Stretch":
-                    result["period"] = result["occurrence_year"].apply(
-                        lambda y: str(int(y))
-                    )
+                    # For a cross-year seasonal stretch (e.g. Nov 1-Feb 18),
+                    # occurrence_year is the year in which the stretch starts.
+                    # Display the full seasonal span so 1997 means 1997-98,
+                    # 1913 means 1913-14, etc. Non-cross-year stretches keep
+                    # the single calendar year.
+                    sm, sd = map(int, extreme_start_mmdd.split("-"))
+                    em, ed = map(int, extreme_end_mmdd.split("-"))
+                    cross_year = (sm, sd) > (em, ed)
+
+                    if cross_year:
+                        result["period"] = result["occurrence_year"].apply(
+                            lambda y: f"{int(y)}-{str(int(y) + 1)[-2:]}"
+                        )
+                    else:
+                        result["period"] = result["occurrence_year"].apply(
+                            lambda y: str(int(y))
+                        )
                 else:
                     result["period"] = result.apply(
                         lambda row: (
