@@ -132,6 +132,27 @@ def parse_years_web(value: str):
     return years
 
 
+def relabel_water_year_output(df):
+    """
+    Convert the engine's internal starting-year water-year labels to the
+    standard ending-year convention used by the web UI.
+
+    Example:
+      engine WY 1997 = 1997-07-01 through 1998-06-30
+      web UI         = WY 1998
+    """
+    if df is None or df.empty:
+        return df
+
+    out = df.copy()
+    out["period_id"] = pd.to_numeric(out["period_id"], errors="coerce") + 1
+    out["period_id"] = out["period_id"].astype("Int64")
+    out["period_label"] = out["period_id"].map(
+        lambda y: f"WY {int(y)}" if pd.notna(y) else "WY"
+    )
+    return out
+
+
 def format_wy_columns(columns):
     """
     Convert compare(3).py period labels such as 1994-95 into the
@@ -855,9 +876,6 @@ if analysis_mode == "Comparison Mode":
 
         for i in range(int(range_count)):
             st.markdown(f"**Range #{i + 1}**")
-            # Direct Year / Month / Day selectors avoid Streamlit's native
-            # 20-year calendar navigation, which is cumbersome for the full
-            # 1890–2026 historical dataset.
             def date_selector(prefix, default_date):
                 years = list(range(1890, 2027))
                 months = list(range(1, 13))
@@ -1016,6 +1034,7 @@ if analysis_mode == "Comparison Mode":
                         engine_years,
                         min_valid_days=effective_min_valid,
                     )
+                    df_res = relabel_water_year_output(df_res)
 
             elif comparison_mode == "Recurring Seasonal Stretch":
                 years = parse_years_web(years_input)
@@ -1082,6 +1101,7 @@ if analysis_mode == "Comparison Mode":
                             engine_years,
                             min_valid_days=effective_min_valid,
                         )
+                        statewide_df = relabel_water_year_output(statewide_df)
                 elif comparison_mode == "Recurring Seasonal Stretch":
                     with st.spinner(
                         f"Querying {len(statewide_ids)} California stations..."
