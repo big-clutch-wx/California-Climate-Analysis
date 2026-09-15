@@ -298,41 +298,6 @@ if not selected_regions:
     st.stop()
 
 # ---------------------------------------------------------------------------
-# Regional climate baselines
-# ---------------------------------------------------------------------------
-
-# Show the long-term average annual precipitation used as the baseline for
-# each selected hydrological region. California is a separate statewide scope,
-# so it is shown separately rather than as a hydrological-region baseline.
-hydrological_regions_selected = [
-    r for r in selected_regions if r != "California"
-]
-
-if hydrological_regions_selected or "California" in selected_regions:
-    st.subheader("Average Annual Precipitation")
-
-    info_regions = hydrological_regions_selected.copy()
-    if "California" in selected_regions:
-        info_regions.insert(0, "California")
-
-    info_cols = st.columns(min(len(info_regions), 4))
-
-    for i, region in enumerate(info_regions):
-        with info_cols[i % len(info_cols)]:
-            if region == "California":
-                avg = 23.5
-                label = "California statewide"
-            else:
-                avg = regions[region]["avg_precip"]
-                label = "Hydrological region"
-
-            st.info(
-                f"**{region}**\n\n"
-                f"**{avg:.1f}\"** average annual precipitation\n\n"
-                f"{label} baseline"
-            )
-
-# ---------------------------------------------------------------------------
 # Memory-efficient Extremes / Records helpers
 # ---------------------------------------------------------------------------
 
@@ -829,6 +794,7 @@ if analysis_mode == "Comparison Mode":
             "individually specified date ranges and include consecutive "
             "wet/dry spell metrics in the station-level results."
         )
+        st.caption("Date range available: January 1, 1890 through December 31, 2026.")
 
         range_count = st.number_input(
             "Number of date ranges",
@@ -848,6 +814,8 @@ if analysis_mode == "Comparison Mode":
                 start_date = st.date_input(
                     "Start date",
                     value=__import__("datetime").date(1981 + i, 1, 1),
+                    min_value=__import__("datetime").date(1890, 1, 1),
+                    max_value=__import__("datetime").date(2026, 12, 31),
                     key=f"custom_start_{i}",
                 )
 
@@ -855,6 +823,8 @@ if analysis_mode == "Comparison Mode":
                 end_date = st.date_input(
                     "End date",
                     value=__import__("datetime").date(1981 + i, 3, 31),
+                    min_value=__import__("datetime").date(1890, 1, 1),
+                    max_value=__import__("datetime").date(2026, 12, 31),
                     key=f"custom_end_{i}",
                 )
 
