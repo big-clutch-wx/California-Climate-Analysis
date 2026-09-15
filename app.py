@@ -16,6 +16,7 @@ import os
 import json
 import importlib.util
 import glob
+import calendar
 from pathlib import Path
 
 import duckdb
@@ -840,6 +841,7 @@ if analysis_mode == "Comparison Mode":
             "individually specified date ranges and include consecutive "
             "wet/dry spell metrics in the station-level results."
         )
+        st.caption("Dates available: January 1, 1890 through December 31, 2026.")
 
         range_count = st.number_input(
             "Number of date ranges",
@@ -853,20 +855,62 @@ if analysis_mode == "Comparison Mode":
 
         for i in range(int(range_count)):
             st.markdown(f"**Range #{i + 1}**")
+            # Direct Year / Month / Day selectors avoid Streamlit's native
+            # 20-year calendar navigation, which is cumbersome for the full
+            # 1890–2026 historical dataset.
+            def date_selector(prefix, default_date):
+                years = list(range(1890, 2027))
+                months = list(range(1, 13))
+                month_names = [
+                    "January", "February", "March", "April", "May", "June",
+                    "July", "August", "September", "October", "November", "December",
+                ]
+
+                y_col, m_col, d_col = st.columns(3)
+
+                with y_col:
+                    year = st.selectbox(
+                        "Year",
+                        years,
+                        index=years.index(default_date.year),
+                        key=f"{prefix}_year",
+                    )
+
+                with m_col:
+                    month = st.selectbox(
+                        "Month",
+                        months,
+                        index=default_date.month - 1,
+                        format_func=lambda m: month_names[m - 1],
+                        key=f"{prefix}_month",
+                    )
+
+                max_day = calendar.monthrange(year, month)[1]
+                day_options = list(range(1, max_day + 1))
+                day_default = min(default_date.day, max_day)
+
+                with d_col:
+                    day = st.selectbox(
+                        "Day",
+                        day_options,
+                        index=day_default - 1,
+                        key=f"{prefix}_day",
+                    )
+
+                return __import__("datetime").date(year, month, day)
+
             c1, c2 = st.columns(2)
 
             with c1:
-                start_date = st.date_input(
-                    "Start date",
-                    value=__import__("datetime").date(1981 + i, 1, 1),
-                    key=f"custom_start_{i}",
+                start_date = date_selector(
+                    f"custom_start_{i}",
+                    __import__("datetime").date(1981 + i, 1, 1),
                 )
 
             with c2:
-                end_date = st.date_input(
-                    "End date",
-                    value=__import__("datetime").date(1981 + i, 3, 31),
-                    key=f"custom_end_{i}",
+                end_date = date_selector(
+                    f"custom_end_{i}",
+                    __import__("datetime").date(1981 + i, 3, 31),
                 )
 
             if start_date > end_date:
