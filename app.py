@@ -298,6 +298,41 @@ if not selected_regions:
     st.stop()
 
 # ---------------------------------------------------------------------------
+# Regional precipitation baselines
+# ---------------------------------------------------------------------------
+
+# Show the long-term annual precipitation baseline for every selected
+# hydrological region. California is a separate statewide scope and uses the
+# statewide 23.5-inch baseline.
+hydrological_regions_selected = [
+    r for r in selected_regions if r != "California"
+]
+
+if hydrological_regions_selected or "California" in selected_regions:
+    st.subheader("Average Annual Precipitation")
+
+    info_regions = hydrological_regions_selected.copy()
+    if "California" in selected_regions:
+        info_regions.insert(0, "California")
+
+    info_cols = st.columns(min(len(info_regions), 4))
+
+    for i, region in enumerate(info_regions):
+        with info_cols[i % len(info_cols)]:
+            if region == "California":
+                avg = 23.5
+                label = "Statewide California baseline"
+            else:
+                avg = regions[region]["avg_precip"]
+                label = "Hydrological region baseline"
+
+            st.info(
+                f"**{region}**\n\n"
+                f"**{avg:.1f}\"** average annual precipitation\n\n"
+                f"{label}"
+            )
+
+# ---------------------------------------------------------------------------
 # Memory-efficient Extremes / Records helpers
 # ---------------------------------------------------------------------------
 
