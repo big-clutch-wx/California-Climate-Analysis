@@ -1133,37 +1133,30 @@ if analysis_mode == "Comparison Mode":
                     st.warning("No consistent station data found across all specified periods.")
                 st.stop()
 
-            # Map stations to hydrological regions. Comparison modes that
-            # compare recurring periods use a common station intersection,
-            # but Distinct Custom Date Ranges intentionally uses every station
-            # with sufficient valid observations in each individual range.
+            # Map stations to hydrological regions. ALL comparison modes
+            # use the same strict station intersection: a station must have
+            # sufficient valid data in every selected period/range to be
+            # included. This makes every comparison genuinely apples-to-apples.
             if not df_res.empty:
                 df_res["region"] = df_res["station_id"].map(station_region_map)
 
-                if comparison_mode != "Distinct Custom Date Ranges":
-                    all_periods = df_res["period_label"].unique()
-                    stations_in_all_periods = (
-                        df_res.groupby("station_id")["period_label"]
-                        .nunique()
-                        .loc[lambda x: x == len(all_periods)]
-                        .index
+                all_periods = df_res["period_label"].unique()
+                stations_in_all_periods = (
+                    df_res.groupby("station_id")["period_label"]
+                    .nunique()
+                    .loc[lambda x: x == len(all_periods)]
+                    .index
+                )
+
+                df_res = df_res[
+                    df_res["station_id"].isin(stations_in_all_periods)
+                ].copy()
+
+                if df_res.empty and not california_selected:
+                    st.warning(
+                        "No stations have valid data in every selected period."
                     )
-
-                    df_res = df_res[
-                        df_res["station_id"].isin(stations_in_all_periods)
-                    ].copy()
-
-                    if df_res.empty and not california_selected:
-                        st.warning(
-                            "No stations have valid data in every selected period."
-                        )
-                        st.stop()
-                else:
-                    # For custom ranges, each range stands on its own. The
-                    # engine already applies the range's 70% valid-day
-                    # requirement, so missing stations simply do not
-                    # contribute to that range.
-                    stations_in_all_periods = df_res["station_id"].unique()
+                    st.stop()
 
             # ---------------------------------------------------------------
             # Regional summary
@@ -1180,20 +1173,14 @@ if analysis_mode == "Comparison Mode":
                 )
             )
 
-            if comparison_mode == "Distinct Custom Date Ranges":
-                st.success(
-                    "Analysis complete — each custom range uses all stations "
-                    "with sufficient valid observations for that range."
-                )
-            else:
-                regional_station_count = (
-                    len(stations_in_all_periods) if not df_res.empty else 0
-                )
-                st.success(
-                    f"Analysis complete — {regional_station_count} stations "
-                    "have valid data in every selected period for the "
-                    "hydrological-region analysis."
-                )
+            regional_station_count = (
+                len(stations_in_all_periods) if not df_res.empty else 0
+            )
+            st.success(
+                f"Analysis complete — {regional_station_count} stations "
+                "have valid data in every selected period/range for the "
+                "hydrological-region analysis."
+            )
 
             st.header("Regional Comparison Summary Table")
 
