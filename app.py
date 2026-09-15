@@ -665,15 +665,26 @@ def run_lightweight_rolling_records(
         )
 
         selected = []
-        next_allowed_start = None
 
+        # Select the strongest remaining candidate that does not overlap ANY
+        # already-selected window. The old implementation only tracked the
+        # most recently selected window, which could discard valid historical
+        # candidates because the candidates are sorted by precipitation, not
+        # chronologically. For N=1, this incorrectly turned the tail of the
+        # rankings into a chronological list and could return fewer records
+        # than requested.
         for _, row in ordered.iterrows():
-            if next_allowed_start is None or row["period_start"] > next_allowed_start:
-                selected.append(row)
-                next_allowed_start = row["period_end"]
+            overlaps = any(
+                row["period_start"] <= selected_row["period_end"]
+                and row["period_end"] >= selected_row["period_start"]
+                for selected_row in selected
+            )
 
-                if len(selected) >= int(limit):
-                    break
+            if not overlaps:
+                selected.append(row)
+
+            if len(selected) >= int(limit):
+                break
 
         if not selected:
             return pd.DataFrame(
@@ -794,7 +805,6 @@ if analysis_mode == "Comparison Mode":
             "individually specified date ranges and include consecutive "
             "wet/dry spell metrics in the station-level results."
         )
-        st.caption("Date range available: January 1, 1890 through December 31, 2026.")
 
         range_count = st.number_input(
             "Number of date ranges",
@@ -814,8 +824,6 @@ if analysis_mode == "Comparison Mode":
                 start_date = st.date_input(
                     "Start date",
                     value=__import__("datetime").date(1981 + i, 1, 1),
-                    min_value=__import__("datetime").date(1890, 1, 1),
-                    max_value=__import__("datetime").date(2026, 12, 31),
                     key=f"custom_start_{i}",
                 )
 
@@ -823,8 +831,6 @@ if analysis_mode == "Comparison Mode":
                 end_date = st.date_input(
                     "End date",
                     value=__import__("datetime").date(1981 + i, 3, 31),
-                    min_value=__import__("datetime").date(1890, 1, 1),
-                    max_value=__import__("datetime").date(2026, 12, 31),
                     key=f"custom_end_{i}",
                 )
 
@@ -1022,33 +1028,43 @@ if analysis_mode == "Comparison Mode":
                 df_res = pd.DataFrame()
 
             if df_res.empty and not california_selected:
-                st.warning(
-                    "No consistent station data found across all specified periods."
-                )
+                if comparison_mode == "Distinct Custom Date Ranges":
+                    st.warning("No stations have sufficient valid observations for the specified date ranges.")
+                else:
+                    st.warning("No consistent station data found across all specified periods.")
                 st.stop()
 
-            # Map stations to hydrological regions and enforce the same
-            # all-period station intersection used by compare.py.
+            # Map stations to hydrological regions. Comparison modes that
+            # compare recurring periods use a common station intersection,
+            # but Distinct Custom Date Ranges intentionally uses every station
+            # with sufficient valid observations in each individual range.
             if not df_res.empty:
                 df_res["region"] = df_res["station_id"].map(station_region_map)
 
-                all_periods = df_res["period_label"].unique()
-                stations_in_all_periods = (
-                    df_res.groupby("station_id")["period_label"]
-                    .nunique()
-                    .loc[lambda x: x == len(all_periods)]
-                    .index
-                )
-
-                df_res = df_res[
-                    df_res["station_id"].isin(stations_in_all_periods)
-                ].copy()
-
-                if df_res.empty and not california_selected:
-                    st.warning(
-                        "No stations have valid data in every selected period."
+                if comparison_mode != "Distinct Custom Date Ranges":
+                    all_periods = df_res["period_label"].unique()
+                    stations_in_all_periods = (
+                        df_res.groupby("station_id")["period_label"]
+                        .nunique()
+                        .loc[lambda x: x == len(all_periods)]
+                        .index
                     )
-                    st.stop()
+
+                    df_res = df_res[
+                        df_res["station_id"].isin(stations_in_all_periods)
+                    ].copy()
+
+                    if df_res.empty and not california_selected:
+                        st.warning(
+                            "No stations have valid data in every selected period."
+                        )
+                        st.stop()
+                else:
+                    # For custom ranges, each range stands on its own. The
+                    # engine already applies the range's 70% valid-day
+                    # requirement, so missing stations simply do not
+                    # contribute to that range.
+                    stations_in_all_periods = df_res["station_id"].unique()
 
             # ---------------------------------------------------------------
             # Regional summary
@@ -1065,14 +1081,20 @@ if analysis_mode == "Comparison Mode":
                 )
             )
 
-            regional_station_count = (
-                len(stations_in_all_periods) if not df_res.empty else 0
-            )
-            st.success(
-                f"Analysis complete — {regional_station_count} stations "
-                "have valid data in every selected period for the "
-                "hydrological-region analysis."
-            )
+            if comparison_mode == "Distinct Custom Date Ranges":
+                st.success(
+                    "Analysis complete — each custom range uses all stations "
+                    "with sufficient valid observations for that range."
+                )
+            else:
+                regional_station_count = (
+                    len(stations_in_all_periods) if not df_res.empty else 0
+                )
+                st.success(
+                    f"Analysis complete — {regional_station_count} stations "
+                    "have valid data in every selected period for the "
+                    "hydrological-region analysis."
+                )
 
             st.header("Regional Comparison Summary Table")
 
@@ -1119,13 +1141,20 @@ if analysis_mode == "Comparison Mode":
                     st.info("No valid station data for this region.")
                     continue
 
-                station_count = int(region_data["station_count"].iloc[0])
-                st.subheader(f"{region} ({station_count} stations)")
+                if comparison_mode == "Distinct Custom Date Ranges":
+                    st.subheader(region)
+                    table = region_data[
+                        ["period_label", "avg_precip", "pct_base", "station_count"]
+                    ].copy()
+                    table.columns = ["Period", "Avg Precip", "% WY Avg", "Stations"]
+                else:
+                    station_count = int(region_data["station_count"].iloc[0])
+                    st.subheader(f"{region} ({station_count} stations)")
 
-                table = region_data[
-                    ["period_label", "avg_precip", "pct_base"]
-                ].copy()
-                table.columns = ["Period", "Avg Precip", "% WY Avg"]
+                    table = region_data[
+                        ["period_label", "avg_precip", "pct_base"]
+                    ].copy()
+                    table.columns = ["Period", "Avg Precip", "% WY Avg"]
                 table["Avg Precip"] = table["Avg Precip"].map(
                     lambda x: f'{x:.2f}"'
                 )
@@ -1207,7 +1236,10 @@ if analysis_mode == "Comparison Mode":
 
                 display = detail[
                     ["station_name", "region"] + precip_cols
-                ].dropna(subset=precip_cols).copy()
+                ].copy()
+
+                if comparison_mode != "Distinct Custom Date Ranges":
+                    display = display.dropna(subset=precip_cols).copy()
 
                 # Human-friendly headers matching the CLI's intent:
                 # seasonal/custom periods use the year(s) or compact dates;
@@ -1242,10 +1274,17 @@ if analysis_mode == "Comparison Mode":
                     if col in display.columns:
                         display[col] = display[col].round(2)
 
-                st.caption(
-                    f"All {len(display)} stations with valid data in every "
-                    f"selected period, sorted by average precipitation."
-                )
+                if comparison_mode == "Distinct Custom Date Ranges":
+                    st.caption(
+                        f"{len(display)} stations with observations in at least one "
+                        "selected range, sorted by average precipitation. Missing "
+                        "station-period observations are shown as blank."
+                    )
+                else:
+                    st.caption(
+                        f"All {len(display)} stations with valid data in every "
+                        f"selected period, sorted by average precipitation."
+                    )
 
                 st.dataframe(
                     display.reset_index(drop=True),
