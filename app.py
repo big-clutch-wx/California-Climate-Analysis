@@ -379,28 +379,48 @@ def render_xmacis_style_chart(daily_df, station_ids, chart_title, normal_annual_
 
     fig = go.Figure()
 
-    # Put every comparison period onto the same synthetic calendar while
-    # preserving the actual chronological order.  This is important for
-    # water years such as Jul-Jun: January must come AFTER December, not
-    # jump backward to the beginning of the x-axis.
-    base_year = 2000  # leap year, so Feb 29 can be represented naturally
-
-    def synthetic_dates(dates):
+    # Map month/day onto a synthetic numeric calendar.  Numeric x values
+    # avoid invalid dates when a leap-year comparison contains Feb 29 while
+    # another comparison is mapped onto a non-leap synthetic year.  The
+    # calendar is anchored to the first month/day of each comparison period
+    # and wraps at the end of the calendar, so a Jul-Jun water year remains
+    # Jul -> Aug -> ... -> Dec -> Jan -> ... -> Jun.
+    def synthetic_positions(dates):
         dates = pd.to_datetime(dates)
-        first_date = dates.iloc[0]
-        first_year = int(first_date.year)
-        result = []
+        if dates.empty:
+            return [], None
+        start_month = int(dates.iloc[0].month)
+        start_day = int(dates.iloc[0].day)
+        anchor = pd.Timestamp(2000, start_month, start_day)
+        positions = []
         for d in dates:
-            year_offset = int(d.year) - first_year
-            result.append(pd.Timestamp(base_year + year_offset, int(d.month), int(d.day)))
-        return result
+            canonical = pd.Timestamp(2000, int(d.month), int(d.day))
+            pos = (canonical - anchor).days
+            if pos < 0:
+                pos += 366
+            positions.append(pos)
+        return positions, (start_month, start_day)
+
+    def calendar_tick_positions(start_month, start_day):
+        anchor = pd.Timestamp(2000, start_month, start_day)
+        ticks = []
+        labels = []
+        for month in range(1, 13):
+            day = 1
+            canonical = pd.Timestamp(2000, month, day)
+            pos = (canonical - anchor).days
+            if pos < 0:
+                pos += 366
+            ticks.append(pos)
+            labels.append(canonical.strftime('%b'))
+        return ticks, labels
 
     for period_index, group in daily_df.groupby("period_index", sort=False):
         group = group.sort_values("date").copy()
         group["date"] = pd.to_datetime(group["date"])
         group["cumulative"] = group["daily_precip"].fillna(0.0).cumsum()
         label = str(group["period_label"].iloc[0])
-        x_values = synthetic_dates(group["date"])
+        x_values, tick_anchor = synthetic_positions(group["date"])
 
         customdata = list(zip(
             group["date"].dt.strftime("%b %d, %Y"),
@@ -443,13 +463,11 @@ def render_xmacis_style_chart(daily_df, station_ids, chart_title, normal_annual_
                 raw_cumulative = 0.0
                 raw_y = []
                 normal_x = []
-                first_year = int(first["date"].iloc[0].year)
-                for d in first["date"]:
+                # Use the same month/day axis as the first comparison period.
+                normal_positions, _ = synthetic_positions(first["date"])
+                for d, xpos in zip(first["date"], normal_positions):
                     raw_cumulative += normal_lookup.get((int(d.month), int(d.day)), 0.0)
-                    year_offset = int(d.year) - first_year
-                    normal_x.append(pd.Timestamp(
-                        base_year + year_offset, int(d.month), int(d.day)
-                    ))
+                    normal_x.append(xpos)
                     raw_y.append(raw_cumulative)
 
                 # Match the authoritative annual regional baseline exactly.
@@ -477,22 +495,23 @@ def render_xmacis_style_chart(daily_df, station_ids, chart_title, normal_annual_
         margin={"l": 55, "r": 30, "t": 55, "b": 75},
         height=500,
     )
-    # Use sparse calendar ticks so the x-axis stays readable.
-    x_values_all = []
-    for trace in fig.data:
-        if trace.x is not None:
-            x_values_all.extend(pd.to_datetime(trace.x).tolist())
-    if x_values_all:
-        x_min = min(x_values_all)
-        x_max = max(x_values_all)
-        span_days = (x_max - x_min).days
-    else:
-        span_days = 0
-
-    if span_days > 90:
-        fig.update_xaxes(tickformat="%b", dtick="M1", showgrid=True)
-    else:
-        fig.update_xaxes(tickformat="%b %-d", dtick="D7", showgrid=True)
+    # Use clean monthly calendar ticks.  Plotly receives numeric day positions,
+    # so leap days never create invalid synthetic timestamps.
+    first_period = daily_df.groupby("period_index", sort=False).first().iloc[0]
+    axis_dates = pd.to_datetime(daily_df.loc[
+        daily_df["period_index"] == first_period.name, "date"
+    ])
+    if not axis_dates.empty:
+        start_month = int(axis_dates.iloc[0].month)
+        start_day = int(axis_dates.iloc[0].day)
+        tickvals, ticktext = calendar_tick_positions(start_month, start_day)
+        fig.update_xaxes(
+            tickmode="array",
+            tickvals=tickvals,
+            ticktext=ticktext,
+            showgrid=True,
+            range=[min(tickvals), max(tickvals)],
+        )
     fig.update_yaxes(showgrid=True)
 
     st.plotly_chart(
