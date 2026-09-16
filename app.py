@@ -1564,11 +1564,17 @@ if analysis_mode == "Comparison Mode":
             # ---------------------------------------------------------------
 
             st.header("Daily Precipitation & Accumulation")
-            st.caption(
-                "Interactive daily precipitation chart. Hover over the lines "
-                "for the daily value, cumulative accumulation, and stations "
-                "reporting. The normal line uses 1991–2020 daily climatology."
-            )
+            if comparison_mode == "Full Water Years":
+                st.caption(
+                    "Interactive daily precipitation chart. Hover over the lines "
+                    "for the daily value, cumulative accumulation, and stations "
+                    "reporting. The normal line uses 1991–2020 daily climatology."
+                )
+            else:
+                st.caption(
+                    "Interactive daily precipitation chart. Hover over the lines "
+                    "for the daily value, cumulative accumulation, and stations reporting."
+                )
 
             chart_regions = []
             if california_selected and statewide_df is not None and not statewide_df.empty:
@@ -1596,7 +1602,7 @@ if analysis_mode == "Comparison Mode":
                     region_ids,
                     f"{region} — Daily Precipitation Accumulation",
                     normal_annual_inches=23.5 if region == "California" else regions[region]["avg_precip"],
-                    show_normal=True,
+                    show_normal=(comparison_mode == "Full Water Years"),
                 )
 
             # ---------------------------------------------------------------
