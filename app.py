@@ -265,6 +265,210 @@ def build_statewide_summary(df_res):
     return statewide
 
 
+def query_daily_comparison_series(station_ids, period_specs):
+    """Return daily regional-mean precipitation for comparison charting.
+
+    Each period is evaluated using the same station set that survived the
+    comparison's strict common-station filter. The chart therefore shows the
+    same regional population as the summary tables.
+    """
+    if not station_ids or not period_specs:
+        return pd.DataFrame()
+
+    ids_str = ", ".join([f"'{sid}'" for sid in station_ids])
+    union_queries = []
+
+    for idx, spec in enumerate(period_specs):
+        union_queries.append(f"""
+            SELECT
+                {idx} AS period_index,
+                '{spec['label'].replace("'", "''")}' AS period_label,
+                CAST(date AS DATE) AS date,
+                CASE
+                    WHEN precip IS NULL OR TRIM(CAST(precip AS VARCHAR)) IN ('', 'M') THEN NULL
+                    WHEN TRIM(CAST(precip AS VARCHAR)) = 'T' THEN 0.0
+                    ELSE TRY_CAST(TRIM(REGEXP_REPLACE(CAST(precip AS VARCHAR), '[AS]$', '')) AS DOUBLE)
+                END AS precip
+            FROM read_parquet('daily_*.parquet', union_by_name=true)
+            WHERE station_id IN ({ids_str})
+              AND CAST(date AS DATE) >= DATE '{spec['start']}'
+              AND CAST(date AS DATE) <= DATE '{spec['end']}'
+        """)
+
+    sql = """
+        WITH raw AS (
+            {union}
+        ),
+        daily AS (
+            SELECT
+                period_index,
+                period_label,
+                date,
+                AVG(precip) AS daily_precip,
+                COUNT(precip) AS station_count
+            FROM raw
+            WHERE precip IS NOT NULL
+            GROUP BY period_index, period_label, date
+        )
+        SELECT * FROM daily
+        ORDER BY period_index, date
+    """.format(union=" UNION ALL ".join(union_queries))
+
+    con = duckdb.connect()
+    try:
+        return con.execute(sql).df()
+    finally:
+        con.close()
+
+
+@st.cache_data(show_spinner=False)
+def query_daily_normal(station_ids, start_date, end_date):
+    """Calculate a 1991-2020 daily precipitation normal for the chart.
+
+    The normal is computed from the same station population, using the
+    calendar-day mean for each month/day and then mapped onto the selected
+    comparison period.
+    """
+    if not station_ids:
+        return pd.DataFrame()
+
+    ids_str = ", ".join([f"'{sid}'" for sid in station_ids])
+    sql = f"""
+        WITH raw AS (
+            SELECT
+                CAST(date AS DATE) AS date,
+                CASE
+                    WHEN precip IS NULL OR TRIM(CAST(precip AS VARCHAR)) IN ('', 'M') THEN NULL
+                    WHEN TRIM(CAST(precip AS VARCHAR)) = 'T' THEN 0.0
+                    ELSE TRY_CAST(TRIM(REGEXP_REPLACE(CAST(precip AS VARCHAR), '[AS]$', '')) AS DOUBLE)
+                END AS precip
+            FROM read_parquet('daily_*.parquet', union_by_name=true)
+            WHERE station_id IN ({ids_str})
+              AND CAST(date AS DATE) >= DATE '1991-01-01'
+              AND CAST(date AS DATE) <= DATE '2020-12-31'
+        ),
+        daily_station AS (
+            SELECT date, AVG(precip) AS daily_value
+            FROM raw
+            WHERE precip IS NOT NULL
+            GROUP BY date
+        )
+        SELECT
+            EXTRACT(MONTH FROM date)::INTEGER AS month,
+            EXTRACT(DAY FROM date)::INTEGER AS day,
+            AVG(daily_value) AS normal_daily_precip
+        FROM daily_station
+        GROUP BY 1, 2
+        ORDER BY 1, 2
+    """
+
+    con = duckdb.connect()
+    try:
+        return con.execute(sql).df()
+    finally:
+        con.close()
+
+
+def render_xmacis_style_chart(daily_df, station_ids, chart_title, show_normal=True):
+    """Render an XMACIS-style cumulative precipitation chart with hover data."""
+    if daily_df is None or daily_df.empty:
+        st.info("Daily precipitation data are not available for this chart.")
+        return
+
+    import plotly.graph_objects as go
+
+    fig = go.Figure()
+
+    for period_index, group in daily_df.groupby("period_index", sort=False):
+        group = group.sort_values("date").copy()
+        group["cumulative"] = group["daily_precip"].cumsum()
+        label = str(group["period_label"].iloc[0])
+
+        # Anchor each comparison period to a common synthetic year so
+        # different years overlay on the same calendar axis. For cross-year
+        # periods, the x-axis follows the actual sequence of dates.
+        base_year = 2000
+        x_values = []
+        for d in group["date"]:
+            month, day = d.month, d.day
+            try:
+                x_values.append(pd.Timestamp(base_year, month, day))
+            except ValueError:
+                # Feb 29 is mapped to Feb 28 in the non-leap display year.
+                x_values.append(pd.Timestamp(base_year, 2, 28))
+
+        customdata = list(zip(
+            group["date"].dt.strftime("%b %d, %Y"),
+            group["daily_precip"].round(2),
+            group["cumulative"].round(2),
+            group["station_count"].astype(int),
+        ))
+
+        fig.add_trace(go.Scatter(
+            x=x_values,
+            y=group["cumulative"],
+            mode="lines",
+            name=label,
+            customdata=customdata,
+            hovertemplate=(
+                "<b>%{customdata[0]}</b><br>"
+                "Daily: %{customdata[1]:.2f}\"<br>"
+                "Accumulation: %{customdata[2]:.2f}\"<br>"
+                "Stations reporting: %{customdata[3]}<extra></extra>"
+            ),
+            line={"width": 2.5},
+        ))
+
+    # Add the daily normal as a cumulative brown reference line, matching
+    # the visual role of the normal line in XMACIS.
+    if show_normal and station_ids:
+        # Determine the displayed calendar span from the first period.
+        first = daily_df[daily_df["period_index"] == daily_df["period_index"].min()].sort_values("date")
+        if not first.empty:
+            normal_df = query_daily_normal(
+                tuple(station_ids),
+                first["date"].min().strftime("%Y-%m-%d"),
+                first["date"].max().strftime("%Y-%m-%d"),
+            )
+            if not normal_df.empty:
+                normal_lookup = {(int(r.month), int(r.day)): float(r.normal_daily_precip)
+                                 for r in normal_df.itertuples(index=False)}
+                cumulative = 0.0
+                normal_x = []
+                normal_y = []
+                for d in first["date"]:
+                    cumulative += normal_lookup.get((d.month, d.day), 0.0)
+                    normal_x.append(pd.Timestamp(2000, d.month, d.day) if not (d.month == 2 and d.day == 29) else pd.Timestamp(2000, 2, 29))
+                    normal_y.append(cumulative)
+
+                fig.add_trace(go.Scatter(
+                    x=normal_x,
+                    y=normal_y,
+                    mode="lines",
+                    name="Normal (1991-2020)",
+                    line={"width": 2, "dash": "solid"},
+                    hovertemplate="<b>Normal</b><br>Accumulation: %{y:.2f}\"<extra></extra>",
+                ))
+
+    fig.update_layout(
+        title=chart_title,
+        xaxis_title=None,
+        yaxis_title="Precipitation (inches)",
+        hovermode="x unified",
+        legend={"orientation": "h", "yanchor": "top", "y": -0.16, "xanchor": "center", "x": 0.5},
+        margin={"l": 55, "r": 30, "t": 55, "b": 75},
+        height=500,
+    )
+    fig.update_xaxes(
+        tickformat="%b %-d",
+        dtick="D2",
+        showgrid=True,
+    )
+    fig.update_yaxes(showgrid=True)
+
+    st.plotly_chart(fig, use_container_width=True, config={"displaylogo": False, "scrollZoom": True})
+
+
 # ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
@@ -1158,6 +1362,35 @@ if analysis_mode == "Comparison Mode":
                     )
                     st.stop()
 
+            # Build the actual date spans used by the daily chart.
+            period_specs = []
+            if comparison_mode == "Full Water Years":
+                for ending_year in wy_end_years:
+                    period_specs.append({
+                        "label": f"WY {ending_year}",
+                        "start": f"{ending_year - 1}-07-01",
+                        "end": f"{ending_year}-06-30",
+                    })
+            elif comparison_mode == "Recurring Seasonal Stretch":
+                crosses_year = (start_mmdd > end_mmdd)
+                for y in years:
+                    period_specs.append({
+                        "label": (
+                            f"{start_mmdd}–{end_mmdd} ({y}-{y + 1})"
+                            if crosses_year
+                            else f"{start_mmdd}–{end_mmdd} ({y})"
+                        ),
+                        "start": f"{y}-{start_mmdd}",
+                        "end": f"{y + 1}-{end_mmdd}" if crosses_year else f"{y}-{end_mmdd}",
+                    })
+            else:
+                for r in date_ranges:
+                    period_specs.append({
+                        "label": r["label"],
+                        "start": r["start"],
+                        "end": r["end"],
+                    })
+
             # ---------------------------------------------------------------
             # Regional summary
             # ---------------------------------------------------------------
@@ -1252,6 +1485,45 @@ if analysis_mode == "Comparison Mode":
                     table,
                     use_container_width=True,
                     hide_index=True,
+                )
+
+            # ---------------------------------------------------------------
+            # XMACIS-style daily precipitation / accumulation chart
+            # ---------------------------------------------------------------
+
+            st.header("Daily Precipitation & Accumulation")
+            st.caption(
+                "Interactive daily precipitation chart. Hover over the lines "
+                "for the daily value, cumulative accumulation, and stations "
+                "reporting. The normal line uses 1991–2020 daily climatology."
+            )
+
+            chart_regions = []
+            if california_selected and statewide_df is not None and not statewide_df.empty:
+                chart_regions.append((
+                    "California",
+                    tuple(statewide_df["station_id"].drop_duplicates().tolist()),
+                ))
+
+            for region in hydrological_regions:
+                region_ids = tuple(
+                    df_res.loc[df_res["region"] == region, "station_id"]
+                    .drop_duplicates()
+                    .tolist()
+                )
+                if region_ids:
+                    chart_regions.append((region, region_ids))
+
+            for region, region_ids in chart_regions:
+                st.subheader(region)
+                daily_chart_df = query_daily_comparison_series(
+                    region_ids, period_specs
+                )
+                render_xmacis_style_chart(
+                    daily_chart_df,
+                    region_ids,
+                    f"{region} — Daily Precipitation Accumulation",
+                    show_normal=True,
                 )
 
             # ---------------------------------------------------------------
