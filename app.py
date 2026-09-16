@@ -379,23 +379,28 @@ def render_xmacis_style_chart(daily_df, station_ids, chart_title, show_normal=Tr
 
     fig = go.Figure()
 
+    # Put every comparison period onto the same synthetic calendar while
+    # preserving the actual chronological order.  This is important for
+    # water years such as Jul-Jun: January must come AFTER December, not
+    # jump backward to the beginning of the x-axis.
+    base_year = 2000  # leap year, so Feb 29 can be represented naturally
+
+    def synthetic_dates(dates):
+        dates = pd.to_datetime(dates)
+        first_date = dates.iloc[0]
+        first_year = int(first_date.year)
+        result = []
+        for d in dates:
+            year_offset = int(d.year) - first_year
+            result.append(pd.Timestamp(base_year + year_offset, int(d.month), int(d.day)))
+        return result
+
     for period_index, group in daily_df.groupby("period_index", sort=False):
         group = group.sort_values("date").copy()
-        group["cumulative"] = group["daily_precip"].cumsum()
+        group["date"] = pd.to_datetime(group["date"])
+        group["cumulative"] = group["daily_precip"].fillna(0.0).cumsum()
         label = str(group["period_label"].iloc[0])
-
-        # Anchor each comparison period to a common synthetic year so
-        # different years overlay on the same calendar axis. For cross-year
-        # periods, the x-axis follows the actual sequence of dates.
-        base_year = 2000
-        x_values = []
-        for d in group["date"]:
-            month, day = d.month, d.day
-            try:
-                x_values.append(pd.Timestamp(base_year, month, day))
-            except ValueError:
-                # Feb 29 is mapped to Feb 28 in the non-leap display year.
-                x_values.append(pd.Timestamp(base_year, 2, 28))
+        x_values = synthetic_dates(group["date"])
 
         customdata = list(zip(
             group["date"].dt.strftime("%b %d, %Y"),
@@ -419,11 +424,11 @@ def render_xmacis_style_chart(daily_df, station_ids, chart_title, show_normal=Tr
             line={"width": 2.5},
         ))
 
-    # Add the daily normal as a cumulative brown reference line, matching
-    # the visual role of the normal line in XMACIS.
+    # Add the daily normal as a cumulative reference line.
     if show_normal and station_ids:
-        # Determine the displayed calendar span from the first period.
-        first = daily_df[daily_df["period_index"] == daily_df["period_index"].min()].sort_values("date")
+        first_index = daily_df["period_index"].min()
+        first = daily_df[daily_df["period_index"] == first_index].sort_values("date").copy()
+        first["date"] = pd.to_datetime(first["date"])
         if not first.empty:
             normal_df = query_daily_normal(
                 tuple(station_ids),
@@ -431,14 +436,20 @@ def render_xmacis_style_chart(daily_df, station_ids, chart_title, show_normal=Tr
                 first["date"].max().strftime("%Y-%m-%d"),
             )
             if not normal_df.empty:
-                normal_lookup = {(int(r.month), int(r.day)): float(r.normal_daily_precip)
-                                 for r in normal_df.itertuples(index=False)}
+                normal_lookup = {
+                    (int(r.month), int(r.day)): float(r.normal_daily_precip)
+                    for r in normal_df.itertuples(index=False)
+                }
                 cumulative = 0.0
                 normal_x = []
                 normal_y = []
+                first_year = int(first["date"].iloc[0].year)
                 for d in first["date"]:
-                    cumulative += normal_lookup.get((d.month, d.day), 0.0)
-                    normal_x.append(pd.Timestamp(2000, d.month, d.day) if not (d.month == 2 and d.day == 29) else pd.Timestamp(2000, 2, 29))
+                    cumulative += normal_lookup.get((int(d.month), int(d.day)), 0.0)
+                    year_offset = int(d.year) - first_year
+                    normal_x.append(pd.Timestamp(
+                        base_year + year_offset, int(d.month), int(d.day)
+                    ))
                     normal_y.append(cumulative)
 
                 fig.add_trace(go.Scatter(
@@ -446,8 +457,8 @@ def render_xmacis_style_chart(daily_df, station_ids, chart_title, show_normal=Tr
                     y=normal_y,
                     mode="lines",
                     name="Normal (1991-2020)",
-                    line={"width": 2, "dash": "solid"},
-                    hovertemplate="<b>Normal</b><br>Accumulation: %{y:.2f}\"<extra></extra>",
+                    line={"width": 2},
+                    hovertemplate="<b>Normal (1991-2020)</b><br>Accumulation: %{y:.2f}\"<extra></extra>",
                 ))
 
     fig.update_layout(
@@ -461,12 +472,16 @@ def render_xmacis_style_chart(daily_df, station_ids, chart_title, show_normal=Tr
     )
     fig.update_xaxes(
         tickformat="%b %-d",
-        dtick="D2",
+        dtick="D7",
         showgrid=True,
     )
     fig.update_yaxes(showgrid=True)
 
-    st.plotly_chart(fig, use_container_width=True, config={"displaylogo": False, "scrollZoom": True})
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        config={"displaylogo": False, "scrollZoom": True},
+    )
 
 
 # ---------------------------------------------------------------------------
