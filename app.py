@@ -369,7 +369,7 @@ def query_daily_normal(station_ids, start_date, end_date):
         con.close()
 
 
-def render_xmacis_style_chart(daily_df, station_ids, chart_title, show_normal=True):
+def render_xmacis_style_chart(daily_df, station_ids, chart_title, normal_annual_inches=None, show_normal=True):
     """Render an XMACIS-style cumulative precipitation chart with hover data."""
     if daily_df is None or daily_df.empty:
         st.info("Daily precipitation data are not available for this chart.")
@@ -440,17 +440,24 @@ def render_xmacis_style_chart(daily_df, station_ids, chart_title, show_normal=Tr
                     (int(r.month), int(r.day)): float(r.normal_daily_precip)
                     for r in normal_df.itertuples(index=False)
                 }
-                cumulative = 0.0
+                raw_cumulative = 0.0
+                raw_y = []
                 normal_x = []
-                normal_y = []
                 first_year = int(first["date"].iloc[0].year)
                 for d in first["date"]:
-                    cumulative += normal_lookup.get((int(d.month), int(d.day)), 0.0)
+                    raw_cumulative += normal_lookup.get((int(d.month), int(d.day)), 0.0)
                     year_offset = int(d.year) - first_year
                     normal_x.append(pd.Timestamp(
                         base_year + year_offset, int(d.month), int(d.day)
                     ))
-                    normal_y.append(cumulative)
+                    raw_y.append(raw_cumulative)
+
+                # Match the authoritative annual regional baseline exactly.
+                if normal_annual_inches is not None and raw_y and raw_y[-1] > 0:
+                    scale = float(normal_annual_inches) / raw_y[-1]
+                    normal_y = [v * scale for v in raw_y]
+                else:
+                    normal_y = raw_y
 
                 fig.add_trace(go.Scatter(
                     x=normal_x,
@@ -470,11 +477,22 @@ def render_xmacis_style_chart(daily_df, station_ids, chart_title, show_normal=Tr
         margin={"l": 55, "r": 30, "t": 55, "b": 75},
         height=500,
     )
-    fig.update_xaxes(
-        tickformat="%b %-d",
-        dtick="D7",
-        showgrid=True,
-    )
+    # Use sparse calendar ticks so the x-axis stays readable.
+    x_values_all = []
+    for trace in fig.data:
+        if trace.x is not None:
+            x_values_all.extend(pd.to_datetime(trace.x).tolist())
+    if x_values_all:
+        x_min = min(x_values_all)
+        x_max = max(x_values_all)
+        span_days = (x_max - x_min).days
+    else:
+        span_days = 0
+
+    if span_days > 90:
+        fig.update_xaxes(tickformat="%b", dtick="M1", showgrid=True)
+    else:
+        fig.update_xaxes(tickformat="%b %-d", dtick="D7", showgrid=True)
     fig.update_yaxes(showgrid=True)
 
     st.plotly_chart(
@@ -1538,6 +1556,7 @@ if analysis_mode == "Comparison Mode":
                     daily_chart_df,
                     region_ids,
                     f"{region} — Daily Precipitation Accumulation",
+                    normal_annual_inches=23.5 if region == "California" else regions[region]["avg_precip"],
                     show_normal=True,
                 )
 
