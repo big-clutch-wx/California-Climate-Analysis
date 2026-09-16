@@ -1640,97 +1640,118 @@ if analysis_mode == "Comparison Mode":
             if show_detail:
                 st.header("Detailed Station Breakdown")
 
-                detail = df_res.pivot(
-                    index="station_id",
-                    columns="period_label",
-                    values="total_precip",
-                )
+                # California is a separate statewide scope, so when it is
+                # selected by itself df_res can legitimately be empty. Use
+                # the California query for the detail table in that case.
+                # When hydrological regions are also selected, retain the
+                # regional station table here to avoid duplicating the same
+                # stations (California contains the regional stations).
+                detail_source = df_res
+                detail_region_override = {}
+                if detail_source.empty and california_selected:
+                    detail_source = statewide_df.copy() if statewide_df is not None else pd.DataFrame()
+                    if not detail_source.empty:
+                        detail_region_override = {
+                            sid: "California"
+                            for sid in detail_source["station_id"].drop_duplicates()
+                        }
 
-                detail["station_name"] = [
-                    metadata.get(sid, {}).get("name", sid)
-                    for sid in detail.index
-                ]
-                detail["region"] = [
-                    station_region_map.get(sid, "Unknown")
-                    for sid in detail.index
-                ]
-
-                precip_cols = [
-                    c for c in detail.columns
-                    if c not in ["station_name", "region"]
-                ]
-
-                if precip_cols:
-                    detail["avg_precip"] = detail[precip_cols].mean(axis=1)
-                    detail = detail.sort_values("avg_precip", ascending=False)
-                    detail = detail.drop(columns=["avg_precip"])
-
-                display = detail[
-                    ["station_name", "region"] + precip_cols
-                ].copy()
-
-                if comparison_mode != "Distinct Custom Date Ranges":
-                    display = display.dropna(subset=precip_cols).copy()
-
-                # Human-friendly headers matching the CLI's intent:
-                # seasonal/custom periods use the year(s) or compact dates;
-                # WY columns use the ending-year identifier.
-                rename_map = {}
-                for col in precip_cols:
-                    s = str(col)
-                    import re
-                    years_found = re.findall(r"\d{4}", s)
-
-                    if comparison_mode == "Full Water Years":
-                        if len(years_found) >= 2:
-                            rename_map[col] = years_found[-1]
-                        elif years_found:
-                            rename_map[col] = years_found[0]
-                        else:
-                            rename_map[col] = s
-                    elif comparison_mode == "Recurring Seasonal Stretch":
-                        if years_found:
-                            rename_map[col] = years_found[-1]
-                        else:
-                            rename_map[col] = s
-                    else:
-                        rename_map[col] = s
-
-                display = display.rename(columns=rename_map)
-
-                numeric_period_cols = [
-                    rename_map.get(c, c) for c in precip_cols
-                ]
-                for col in numeric_period_cols:
-                    if col in display.columns:
-                        display[col] = display[col].round(2)
-
-                if comparison_mode == "Distinct Custom Date Ranges":
-                    st.caption(
-                        f"{len(display)} stations with observations in at least one "
-                        "selected range, sorted by average precipitation. Missing "
-                        "station-period observations are shown as blank."
-                    )
+                if detail_source.empty:
+                    st.info("No station-level data are available for the selected scope.")
                 else:
-                    st.caption(
-                        f"All {len(display)} stations with valid data in every "
-                        f"selected period, sorted by average precipitation."
+                    detail = detail_source.pivot(
+                        index="station_id",
+                        columns="period_label",
+                        values="total_precip",
                     )
 
-                st.dataframe(
-                    display.reset_index(drop=True),
-                    use_container_width=True,
-                    hide_index=True,
-                )
+                    detail["station_name"] = [
+                        metadata.get(sid, {}).get("name", sid)
+                        for sid in detail.index
+                    ]
+                    detail["region"] = [
+                        detail_region_override.get(
+                            sid, station_region_map.get(sid, "Unknown")
+                        )
+                        for sid in detail.index
+                    ]
 
-                csv = display.to_csv(index=False)
-                st.download_button(
-                    "📥 Download Station Breakdown (CSV)",
-                    data=csv,
-                    file_name="california_comparison_station_breakdown.csv",
-                    mime="text/csv",
-                    use_container_width=True,
-                )
+                    precip_cols = [
+                        c for c in detail.columns
+                        if c not in ["station_name", "region"]
+                    ]
+    
+                    if precip_cols:
+                        detail["avg_precip"] = detail[precip_cols].mean(axis=1)
+                        detail = detail.sort_values("avg_precip", ascending=False)
+                        detail = detail.drop(columns=["avg_precip"])
+    
+                    display = detail[
+                        ["station_name", "region"] + precip_cols
+                    ].copy()
+    
+                    if comparison_mode != "Distinct Custom Date Ranges":
+                        display = display.dropna(subset=precip_cols).copy()
+    
+                    # Human-friendly headers matching the CLI's intent:
+                    # seasonal/custom periods use the year(s) or compact dates;
+                    # WY columns use the ending-year identifier.
+                    rename_map = {}
+                    for col in precip_cols:
+                        s = str(col)
+                        import re
+                        years_found = re.findall(r"\d{4}", s)
+    
+                        if comparison_mode == "Full Water Years":
+                            if len(years_found) >= 2:
+                                rename_map[col] = years_found[-1]
+                            elif years_found:
+                                rename_map[col] = years_found[0]
+                            else:
+                                rename_map[col] = s
+                        elif comparison_mode == "Recurring Seasonal Stretch":
+                            if years_found:
+                                rename_map[col] = years_found[-1]
+                            else:
+                                rename_map[col] = s
+                        else:
+                            rename_map[col] = s
+    
+                    display = display.rename(columns=rename_map)
+    
+                    numeric_period_cols = [
+                        rename_map.get(c, c) for c in precip_cols
+                    ]
+                    for col in numeric_period_cols:
+                        if col in display.columns:
+                            display[col] = display[col].round(2)
+    
+                    if comparison_mode == "Distinct Custom Date Ranges":
+                        st.caption(
+                            f"{len(display)} stations with observations in at least one "
+                            "selected range, sorted by average precipitation. Missing "
+                            "station-period observations are shown as blank."
+                        )
+                    else:
+                        st.caption(
+                            f"All {len(display)} stations with valid data in every "
+                            f"selected period, sorted by average precipitation."
+                        )
+    
+                    st.dataframe(
+                        display.reset_index(drop=True),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+    
+                    csv = display.to_csv(index=False)
+                    st.download_button(
+                        "📥 Download Station Breakdown (CSV)",
+                        data=csv,
+                        file_name="california_comparison_station_breakdown.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                    )
 
 
         except FileNotFoundError as exc:
