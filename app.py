@@ -1242,8 +1242,47 @@ if analysis_mode == "Comparison Mode":
             # ---------------------------------------------------------------
             # Run the selected comparison engine for hydrological regions
             # ---------------------------------------------------------------
+            # Keep comparison inputs available below as well, because
+            # California is queried separately after the regional query.
+            engine_years = None
+            effective_min_valid = None
+            wy_end_years = None
+            years = None
+            min_ratio = None
 
             if not matching_ids:
+                # California can be selected by itself, so parse the
+                # comparison inputs even when there are no hydrological
+                # region stations to query.
+                if comparison_mode == "Full Water Years":
+                    wy_end_years = parse_years_web(years_input)
+                    if not wy_end_years:
+                        st.error("No valid water years were entered.")
+                        st.stop()
+                    engine_years = [y - 1 for y in wy_end_years]
+                    effective_min_valid = (
+                        100 if any(y < 1950 for y in wy_end_years)
+                        else int(min_valid_days)
+                    )
+                elif comparison_mode == "Recurring Seasonal Stretch":
+                    years = parse_years_web(years_input)
+                    if not years:
+                        st.error("No valid years were entered.")
+                        st.stop()
+                    try:
+                        from datetime import datetime
+                        sm, sd = map(int, start_mmdd.strip().split("-"))
+                        em, ed = map(int, end_mmdd.strip().split("-"))
+                        datetime(2001, sm, sd)
+                        datetime(2001, em, ed)
+                        start_mmdd = f"{sm:02d}-{sd:02d}"
+                        end_mmdd = f"{em:02d}-{ed:02d}"
+                    except ValueError:
+                        st.error("Invalid MM-DD date. Use the format MM-DD.")
+                        st.stop()
+                    has_pre_1950 = any(y < 1950 for y in years)
+                    min_ratio = 0.50 if has_pre_1950 else 0.70
+
                 df_res = pd.DataFrame()
             elif comparison_mode == "Full Water Years":
                 wy_end_years = parse_years_web(years_input)
