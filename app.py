@@ -467,12 +467,29 @@ def get_period_normal_map(station_ids, period_specs):
     normal_df, annual_normal = query_daily_normal(tuple(station_ids))
     if normal_df.empty:
         return {}, annual_normal
-    return {
-        spec["label"]: normal_total_for_dates(
-            normal_df, spec["start"], spec["end"]
-        )
-        for spec in period_specs
-    }, annual_normal
+    period_normals = {}
+    for spec in period_specs:
+        start = pd.Timestamp(spec["start"])
+        end = pd.Timestamp(spec["end"])
+
+        # A full Water Year must use the exact same annual 1991-2020
+        # station-network normal used by Extremes / Records.  Summing the
+        # daily normal can differ slightly because the daily normal is built
+        # from calendar-day means and may have different day-level coverage.
+        if (
+            start.month == 7
+            and start.day == 1
+            and end.month == 6
+            and end.day == 30
+            and end.year == start.year + 1
+        ):
+            period_normals[spec["label"]] = annual_normal
+        else:
+            period_normals[spec["label"]] = normal_total_for_dates(
+                normal_df, spec["start"], spec["end"]
+            )
+
+    return period_normals, annual_normal
 
 
 def render_xmacis_style_chart(daily_df, station_ids, chart_title, show_normal=True, normal_station_ids=None):
