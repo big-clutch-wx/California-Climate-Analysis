@@ -475,7 +475,7 @@ def get_period_normal_map(station_ids, period_specs):
     }, annual_normal
 
 
-def render_xmacis_style_chart(daily_df, station_ids, chart_title, show_normal=True):
+def render_xmacis_style_chart(daily_df, station_ids, chart_title, show_normal=True, normal_station_ids=None):
     """Render an XMACIS-style cumulative precipitation chart with hover data."""
     if daily_df is None or daily_df.empty:
         st.info("Daily precipitation data are not available for this chart.")
@@ -550,13 +550,16 @@ def render_xmacis_style_chart(daily_df, station_ids, chart_title, show_normal=Tr
             line={"width": 2.5},
         ))
 
-    # Add the daily normal as a cumulative reference line.
-    if show_normal and station_ids:
+    # Add the daily normal as a cumulative reference line. The normal uses
+    # the fixed full-scope station network, independent of the comparison
+    # station intersection.
+    if show_normal and (normal_station_ids or station_ids):
         first_index = daily_df["period_index"].min()
         first = daily_df[daily_df["period_index"] == first_index].sort_values("date").copy()
         first["date"] = pd.to_datetime(first["date"])
         if not first.empty:
-            normal_df, normal_annual_inches = query_daily_normal(tuple(station_ids))
+            normal_ids = tuple(normal_station_ids) if normal_station_ids else tuple(station_ids)
+            normal_df, normal_annual_inches = query_daily_normal(normal_ids)
             if not normal_df.empty:
                 normal_lookup = {
                     (int(r.month), int(r.day)): float(r.normal_daily_precip)
@@ -1594,36 +1597,30 @@ if analysis_mode == "Comparison Mode":
                 )
             )
 
-            # % Avg is based on the same 1991-2020 station-network normal
-            # used by the XMACIS-style chart. For WY comparisons this is the
-            # full-water-year normal; for seasonal/custom periods it is the
-            # normal accumulated over that exact calendar span.
-            regional_period_normals = {}
-            if not df_res.empty:
-                for region in hydrological_regions:
-                    region_ids = tuple(
-                        df_res.loc[df_res["region"] == region, "station_id"]
-                        .drop_duplicates().tolist()
-                    )
-                    regional_period_normals[region], _ = get_period_normal_map(
-                        region_ids, period_specs
-                    )
+            # % Avg uses one FIXED 1991–2020 station-network normal for each
+            # scope. The baseline comes from the full station network belonging
+            # to the region, not from the subset that survives the selected
+            # comparison periods. This keeps % Avg identical between
+            # Comparison Mode and Extremes / Records.
+            regional_scope_ids = {
+                region: tuple(
+                    sid for sid, mapped_region in station_region_map.items()
+                    if mapped_region == region
+                )
+                for region in hydrological_regions
+            }
 
-                for idx, row in summary.iterrows():
-                    normal_total = regional_period_normals.get(
-                        row["region"], {}
-                    ).get(row["period_label"])
-                    summary.loc[idx, "regional_base"] = normal_total
-                    summary.loc[idx, "pct_base"] = (
-                        row["avg_precip"] / normal_total * 100
-                        if normal_total not in (None, 0) and pd.notna(normal_total)
-                        else float("nan")
+            regional_period_normals = {}
+            for region, scope_ids in regional_scope_ids.items():
+                if scope_ids:
+                    regional_period_normals[region], _ = get_period_normal_map(
+                        scope_ids, period_specs
                     )
 
             statewide_period_normals = {}
             if california_selected and statewide_df is not None and not statewide_df.empty:
                 statewide_period_normals, _ = get_period_normal_map(
-                    tuple(statewide_df["station_id"].drop_duplicates().tolist()),
+                    tuple(statewide_ids),
                     period_specs,
                 )
 
@@ -1729,7 +1726,7 @@ if analysis_mode == "Comparison Mode":
             st.caption(
                 "Interactive daily precipitation chart. Hover over the lines "
                 "for the daily value, cumulative accumulation, and stations reporting. "
-                "The Normal line uses the region's 1991–2020 Water Year daily average."
+                "The Normal line uses the fixed full-scope 1991–2020 station-network daily average."
             )
 
             chart_regions = []
@@ -1737,18 +1734,26 @@ if analysis_mode == "Comparison Mode":
                 chart_regions.append((
                     "California",
                     tuple(statewide_df["station_id"].drop_duplicates().tolist()),
+                    tuple(statewide_ids),
                 ))
 
             for region in hydrological_regions:
+                # Comparison lines remain apples-to-apples using stations valid
+                # in every selected period; the normal line uses the fixed full
+                # regional station network.
                 region_ids = tuple(
                     df_res.loc[df_res["region"] == region, "station_id"]
                     .drop_duplicates()
                     .tolist()
                 )
                 if region_ids:
-                    chart_regions.append((region, region_ids))
+                    chart_regions.append((
+                        region,
+                        region_ids,
+                        regional_scope_ids.get(region, region_ids),
+                    ))
 
-            for region, region_ids in chart_regions:
+            for region, region_ids, normal_ids in chart_regions:
                 st.subheader(region)
                 daily_chart_df = query_daily_comparison_series(
                     region_ids, period_specs
@@ -1758,6 +1763,7 @@ if analysis_mode == "Comparison Mode":
                     region_ids,
                     f"{region} — Daily Precipitation Accumulation",
                     show_normal=True,
+                    normal_station_ids=normal_ids,
                 )
 
             # ---------------------------------------------------------------
