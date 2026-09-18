@@ -441,6 +441,40 @@ def query_daily_normal(station_ids):
     return result[["month", "day", "normal_daily_precip"]], annual
 
 
+def normal_total_for_dates(normal_df, start_date, end_date):
+    """Sum the 1991-2020 daily normal over an arbitrary calendar span."""
+    if normal_df is None or normal_df.empty:
+        return None
+    start = pd.Timestamp(start_date)
+    end = pd.Timestamp(end_date)
+    if start > end:
+        return None
+    lookup = {
+        (int(row.month), int(row.day)): float(row.normal_daily_precip)
+        for row in normal_df.itertuples(index=False)
+    }
+    return sum(
+        lookup.get((int(d.month), int(d.day)), 0.0)
+        for d in pd.date_range(start, end, freq="D")
+    )
+
+
+@st.cache_data(show_spinner=False)
+def get_period_normal_map(station_ids, period_specs):
+    """Return 1991-2020 station-network normal totals for each period."""
+    if not station_ids or not period_specs:
+        return {}, None
+    normal_df, annual_normal = query_daily_normal(tuple(station_ids))
+    if normal_df.empty:
+        return {}, annual_normal
+    return {
+        spec["label"]: normal_total_for_dates(
+            normal_df, spec["start"], spec["end"]
+        )
+        for spec in period_specs
+    }, annual_normal
+
+
 def render_xmacis_style_chart(daily_df, station_ids, chart_title, show_normal=True):
     """Render an XMACIS-style cumulative precipitation chart with hover data."""
     if daily_df is None or daily_df.empty:
@@ -1530,9 +1564,9 @@ if analysis_mode == "Comparison Mode":
                 for y in years:
                     period_specs.append({
                         "label": (
-                            f"{start_mmdd}–{end_mmdd} ({y}-{y + 1})"
+                            f"{start_mmdd} ({y}) to {end_mmdd} ({y + 1})"
                             if crosses_year
-                            else f"{start_mmdd}–{end_mmdd} ({y})"
+                            else f"{start_mmdd} to {end_mmdd} ({y})"
                         ),
                         "start": f"{y}-{start_mmdd}",
                         "end": f"{y + 1}-{end_mmdd}" if crosses_year else f"{y}-{end_mmdd}",
@@ -1560,6 +1594,39 @@ if analysis_mode == "Comparison Mode":
                 )
             )
 
+            # % Avg is based on the same 1991-2020 station-network normal
+            # used by the XMACIS-style chart. For WY comparisons this is the
+            # full-water-year normal; for seasonal/custom periods it is the
+            # normal accumulated over that exact calendar span.
+            regional_period_normals = {}
+            if not df_res.empty:
+                for region in hydrological_regions:
+                    region_ids = tuple(
+                        df_res.loc[df_res["region"] == region, "station_id"]
+                        .drop_duplicates().tolist()
+                    )
+                    regional_period_normals[region], _ = get_period_normal_map(
+                        region_ids, period_specs
+                    )
+
+                for idx, row in summary.iterrows():
+                    normal_total = regional_period_normals.get(
+                        row["region"], {}
+                    ).get(row["period_label"])
+                    summary.loc[idx, "regional_base"] = normal_total
+                    summary.loc[idx, "pct_base"] = (
+                        row["avg_precip"] / normal_total * 100
+                        if normal_total not in (None, 0) and pd.notna(normal_total)
+                        else float("nan")
+                    )
+
+            statewide_period_normals = {}
+            if california_selected and statewide_df is not None and not statewide_df.empty:
+                statewide_period_normals, _ = get_period_normal_map(
+                    tuple(statewide_df["station_id"].drop_duplicates().tolist()),
+                    period_specs,
+                )
+
             regional_station_count = (
                 len(stations_in_all_periods) if not df_res.empty else 0
             )
@@ -1570,6 +1637,10 @@ if analysis_mode == "Comparison Mode":
             )
 
             st.header("Regional Comparison Summary Table")
+            st.caption(
+                "% Avg compares each period with its 1991–2020 station-network normal "
+                "for the same calendar span; Water Years use the full WY normal."
+            )
 
             # California is a separate statewide scope and is always shown
             # first when selected. It does not consume stations from the
@@ -1580,6 +1651,15 @@ if analysis_mode == "Comparison Mode":
                     if statewide_df is not None and not statewide_df.empty
                     else pd.DataFrame()
                 )
+                if not ca_summary.empty and statewide_period_normals:
+                    ca_summary["pct_base"] = ca_summary["period_label"].map(
+                        lambda label: (
+                            ca_summary.loc[ca_summary["period_label"] == label, "avg_precip"].iloc[0]
+                            / statewide_period_normals[label] * 100
+                            if statewide_period_normals.get(label) not in (None, 0)
+                            else float("nan")
+                        )
+                    )
                 if ca_summary.empty:
                     st.subheader("California (0 stations)")
                     st.info("No valid station data for California.")
@@ -1589,11 +1669,11 @@ if analysis_mode == "Comparison Mode":
                     ca_table = ca_summary[
                         ["period_label", "avg_precip", "pct_base"]
                     ].copy()
-                    ca_table.columns = ["Period", "Avg Precip", "% WY Avg"]
+                    ca_table.columns = ["Period", "Avg Precip", "% Avg"]
                     ca_table["Avg Precip"] = ca_table["Avg Precip"].map(
                         lambda x: f'{x:.2f}"'
                     )
-                    ca_table["% WY Avg"] = ca_table["% WY Avg"].map(
+                    ca_table["% Avg"] = ca_table["% Avg"].map(
                         lambda x: f"{x:.1f}%"
                     )
                     st.dataframe(
@@ -1619,7 +1699,7 @@ if analysis_mode == "Comparison Mode":
                     table = region_data[
                         ["period_label", "avg_precip", "pct_base", "station_count"]
                     ].copy()
-                    table.columns = ["Period", "Avg Precip", "% WY Avg", "Stations"]
+                    table.columns = ["Period", "Avg Precip", "% Avg", "Stations"]
                 else:
                     station_count = int(region_data["station_count"].iloc[0])
                     st.subheader(f"{region} ({station_count} stations)")
@@ -1627,11 +1707,11 @@ if analysis_mode == "Comparison Mode":
                     table = region_data[
                         ["period_label", "avg_precip", "pct_base"]
                     ].copy()
-                    table.columns = ["Period", "Avg Precip", "% WY Avg"]
+                    table.columns = ["Period", "Avg Precip", "% Avg"]
                 table["Avg Precip"] = table["Avg Precip"].map(
                     lambda x: f'{x:.2f}"'
                 )
-                table["% WY Avg"] = table["% WY Avg"].map(
+                table["% Avg"] = table["% Avg"].map(
                     lambda x: f"{x:.1f}%"
                 )
 
@@ -1712,6 +1792,39 @@ if analysis_mode == "Comparison Mode":
                 st.dataframe(
                     matrix.round(2),
                     use_container_width=True,
+                )
+
+                pct_matrix = summary.pivot(
+                    index="region",
+                    columns="period_label",
+                    values="pct_base",
+                )
+
+                if california_selected and statewide_df is not None and not statewide_df.empty:
+                    ca_avg = statewide_df.groupby("period_label")["total_precip"].mean()
+                    pct_matrix.loc["California"] = pd.Series({
+                        label: (
+                            ca_avg[label] / statewide_period_normals[label] * 100
+                            if statewide_period_normals.get(label) not in (None, 0)
+                            else float("nan")
+                        )
+                        for label in ca_avg.index
+                    })
+
+                if "California" in pct_matrix.index:
+                    ordered = ["California"] + [
+                        r for r in pct_matrix.index if r != "California"
+                    ]
+                    pct_matrix = pct_matrix.reindex(ordered)
+
+                st.subheader("Side-by-Side % Avg Matrix")
+                st.dataframe(
+                    pct_matrix.round(1),
+                    use_container_width=True,
+                    column_config={
+                        col: st.column_config.NumberColumn(col, format="%.1f%%")
+                        for col in pct_matrix.columns
+                    },
                 )
 
             # ---------------------------------------------------------------
@@ -2047,7 +2160,18 @@ else:
                         limit=int(records_to_show),
                     )
 
-            def get_ranked_records(records):
+            extreme_normal_cache = {}
+
+            def extreme_normal_total(scope_key, station_ids, period_start, period_end):
+                cache_key = (scope_key, tuple(sorted(station_ids)))
+                if cache_key not in extreme_normal_cache:
+                    extreme_normal_cache[cache_key] = query_daily_normal(tuple(station_ids))
+                normal_df, annual_normal = extreme_normal_cache[cache_key]
+                if extreme_type == "Water Years":
+                    return annual_normal
+                return normal_total_for_dates(normal_df, period_start, period_end)
+
+            def get_ranked_records(records, scope_key, station_ids):
                 if records is None or records.empty:
                     return None
 
@@ -2085,6 +2209,32 @@ else:
                         axis=1,
                     )
 
+                pct_values = []
+                for _, row in result.iterrows():
+                    if extreme_type == "Water Years":
+                        start = f"{int(row['wy_end_year']) - 1}-07-01"
+                        end = f"{int(row['wy_end_year'])}-06-30"
+                    elif extreme_type == "Recurring Seasonal / Custom Calendar Stretch":
+                        start_year = int(row["occurrence_year"])
+                        sm, sd = map(int, extreme_start_mmdd.split("-"))
+                        em, ed = map(int, extreme_end_mmdd.split("-"))
+                        start = f"{start_year}-{sm:02d}-{sd:02d}"
+                        end_year = start_year + 1 if (sm, sd) > (em, ed) else start_year
+                        end = f"{end_year}-{em:02d}-{ed:02d}"
+                    else:
+                        start = row["period_start"]
+                        end = row["period_end"]
+
+                    normal_total = extreme_normal_total(
+                        scope_key, station_ids, start, end
+                    )
+                    pct_values.append(
+                        float(row["precip"]) / normal_total * 100
+                        if normal_total not in (None, 0) and pd.notna(normal_total)
+                        else float("nan")
+                    )
+                result["pct_avg"] = pct_values
+
                 return {
                     "lowest": (
                         result[result["record_type"] == "Lowest"]
@@ -2119,6 +2269,9 @@ else:
                         "Precipitation": frame["precip"].map(
                             lambda x: f'{float(x):.2f}"'
                         ),
+                        "% Avg": frame["pct_avg"].map(
+                            lambda x: f"{float(x):.1f}%" if pd.notna(x) else "N/A"
+                        ),
                         "Period": frame["period"],
                         "Stations": frame["station_count"].astype(int),
                     })
@@ -2141,19 +2294,31 @@ else:
             for region in hydrological_regions:
                 show_records(
                     region,
-                    get_ranked_records(region_record_results.get(region)),
+                    get_ranked_records(
+                        region_record_results.get(region),
+                        region,
+                        {sid for sid, mapped_region in station_region_map.items() if mapped_region == region},
+                    ),
                 )
 
             st.header("Statewide California Records")
             show_records(
                 "All California Stations",
-                get_ranked_records(statewide_records),
+                get_ranked_records(
+                    statewide_records,
+                    "All California Stations",
+                    statewide_ids,
+                ),
             )
 
             rows = []
 
             for region in hydrological_regions:
-                ranked = get_ranked_records(region_record_results.get(region))
+                ranked = get_ranked_records(
+                    region_record_results.get(region),
+                    region,
+                    {sid for sid, mapped_region in station_region_map.items() if mapped_region == region},
+                )
                 if ranked is None:
                     continue
 
@@ -2162,6 +2327,7 @@ else:
                         "Scope": region,
                         "Record": f"Lowest #{rank}",
                         "Precip": f'{float(row["precip"]):.2f}"',
+                        "% Avg": f'{float(row["pct_avg"]):.1f}%' if pd.notna(row["pct_avg"]) else "N/A",
                         "Period": row["period"],
                         "Stations": int(row["station_count"]),
                     })
@@ -2171,17 +2337,23 @@ else:
                         "Scope": region,
                         "Record": f"Highest #{rank}",
                         "Precip": f'{float(row["precip"]):.2f}"',
+                        "% Avg": f'{float(row["pct_avg"]):.1f}%' if pd.notna(row["pct_avg"]) else "N/A",
                         "Period": row["period"],
                         "Stations": int(row["station_count"]),
                     })
 
-            ranked = get_ranked_records(statewide_records)
+            ranked = get_ranked_records(
+                statewide_records,
+                "All California Stations",
+                statewide_ids,
+            )
             if ranked is not None:
                 for rank, (_, row) in enumerate(ranked["lowest"].iterrows(), start=1):
                     rows.append({
                         "Scope": "All California Stations",
                         "Record": f"Lowest #{rank}",
                         "Precip": f'{float(row["precip"]):.2f}"',
+                        "% Avg": f'{float(row["pct_avg"]):.1f}%' if pd.notna(row["pct_avg"]) else "N/A",
                         "Period": row["period"],
                         "Stations": int(row["station_count"]),
                     })
@@ -2191,6 +2363,7 @@ else:
                         "Scope": "All California Stations",
                         "Record": f"Highest #{rank}",
                         "Precip": f'{float(row["precip"]):.2f}"',
+                        "% Avg": f'{float(row["pct_avg"]):.1f}%' if pd.notna(row["pct_avg"]) else "N/A",
                         "Period": row["period"],
                         "Stations": int(row["station_count"]),
                     })
