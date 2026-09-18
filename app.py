@@ -322,54 +322,126 @@ def query_daily_comparison_series(station_ids, period_specs):
 
 
 @st.cache_data(show_spinner=False)
-def query_daily_normal(station_ids, start_date, end_date):
-    """Calculate a 1991-2020 daily precipitation normal for the chart.
+def query_daily_normal(station_ids):
+    """Build a station-based 1991-2020 Water Year daily normal.
 
-    The normal is computed from the same station population, using the
-    calendar-day mean for each month/day and then mapped onto the selected
-    comparison period.
+    The normal uses WY 1991 through WY 2020 (1990-07-01 through
+    2020-06-30), matching the app's Water Year convention.  For each
+    station, only water years with at least 200 valid precipitation days are
+    included.  Each station is first averaged across its valid WYs, then the
+    station normals are averaged across the region.  This keeps stations from
+    having more complete records disproportionately weighted.
+
+    Returns one row per calendar month/day plus the regional mean WY total.
     """
     if not station_ids:
-        return pd.DataFrame()
+        return pd.DataFrame(), None
 
-    ids_str = ", ".join([f"'{sid}'" for sid in station_ids])
+    ids_str = ", ".join([f"'{str(sid).replace(chr(39), chr(39)+chr(39))}'" for sid in station_ids])
+
     sql = f"""
         WITH raw AS (
             SELECT
+                station_id,
                 CAST(date AS DATE) AS date,
                 CASE
                     WHEN precip IS NULL OR TRIM(CAST(precip AS VARCHAR)) IN ('', 'M') THEN NULL
                     WHEN TRIM(CAST(precip AS VARCHAR)) = 'T' THEN 0.0
-                    ELSE TRY_CAST(TRIM(REGEXP_REPLACE(CAST(precip AS VARCHAR), '[AS]$', '')) AS DOUBLE)
+                    ELSE TRY_CAST(
+                        TRIM(REGEXP_REPLACE(CAST(precip AS VARCHAR), '[AS]$', ''))
+                        AS DOUBLE
+                    )
                 END AS precip
             FROM read_parquet('daily_*.parquet', union_by_name=true)
             WHERE station_id IN ({ids_str})
-              AND CAST(date AS DATE) >= DATE '1991-01-01'
-              AND CAST(date AS DATE) <= DATE '2020-12-31'
+              AND CAST(date AS DATE) >= DATE '1990-07-01'
+              AND CAST(date AS DATE) <= DATE '2020-06-30'
         ),
-        daily_station AS (
-            SELECT date, AVG(precip) AS daily_value
+        tagged AS (
+            SELECT
+                station_id,
+                date,
+                precip,
+                CASE
+                    WHEN EXTRACT(MONTH FROM date) >= 7
+                        THEN CAST(EXTRACT(YEAR FROM date) AS INTEGER) + 1
+                    ELSE CAST(EXTRACT(YEAR FROM date) AS INTEGER)
+                END AS wy_end_year
             FROM raw
             WHERE precip IS NOT NULL
-            GROUP BY date
+        ),
+        station_wy AS (
+            SELECT
+                station_id,
+                wy_end_year,
+                SUM(precip) AS wy_total,
+                COUNT(*) AS valid_days
+            FROM tagged
+            WHERE wy_end_year BETWEEN 1991 AND 2020
+            GROUP BY station_id, wy_end_year
+            HAVING COUNT(*) >= 200
+        ),
+        station_normal AS (
+            SELECT
+                station_id,
+                AVG(wy_total) AS station_wy_normal
+            FROM station_wy
+            GROUP BY station_id
+            HAVING COUNT(*) >= 20
+        ),
+        daily_station AS (
+            SELECT
+                t.station_id,
+                EXTRACT(MONTH FROM t.date)::INTEGER AS month,
+                EXTRACT(DAY FROM t.date)::INTEGER AS day,
+                AVG(t.precip) AS station_daily_normal
+            FROM tagged t
+            INNER JOIN station_wy sw
+                ON t.station_id = sw.station_id
+               AND t.wy_end_year = sw.wy_end_year
+            GROUP BY
+                t.station_id,
+                EXTRACT(MONTH FROM t.date)::INTEGER,
+                EXTRACT(DAY FROM t.date)::INTEGER
+        ),
+        regional_daily AS (
+            SELECT
+                month,
+                day,
+                AVG(station_daily_normal) AS normal_daily_precip
+            FROM daily_station ds
+            INNER JOIN station_normal sn
+                ON ds.station_id = sn.station_id
+            GROUP BY month, day
+        ),
+        regional_annual AS (
+            SELECT AVG(station_wy_normal) AS normal_annual_inches
+            FROM station_normal
         )
         SELECT
-            EXTRACT(MONTH FROM date)::INTEGER AS month,
-            EXTRACT(DAY FROM date)::INTEGER AS day,
-            AVG(daily_value) AS normal_daily_precip
-        FROM daily_station
-        GROUP BY 1, 2
-        ORDER BY 1, 2
+            rd.month,
+            rd.day,
+            rd.normal_daily_precip,
+            ra.normal_annual_inches
+        FROM regional_daily rd
+        CROSS JOIN regional_annual ra
+        ORDER BY rd.month, rd.day
     """
 
     con = duckdb.connect()
     try:
-        return con.execute(sql).df()
+        result = con.execute(sql).df()
     finally:
         con.close()
 
+    if result.empty:
+        return result, None
 
-def render_xmacis_style_chart(daily_df, station_ids, chart_title, normal_annual_inches=None, show_normal=True):
+    annual = float(result["normal_annual_inches"].iloc[0])
+    return result[["month", "day", "normal_daily_precip"]], annual
+
+
+def render_xmacis_style_chart(daily_df, station_ids, chart_title, show_normal=True):
     """Render an XMACIS-style cumulative precipitation chart with hover data."""
     if daily_df is None or daily_df.empty:
         st.info("Daily precipitation data are not available for this chart.")
@@ -450,11 +522,7 @@ def render_xmacis_style_chart(daily_df, station_ids, chart_title, normal_annual_
         first = daily_df[daily_df["period_index"] == first_index].sort_values("date").copy()
         first["date"] = pd.to_datetime(first["date"])
         if not first.empty:
-            normal_df = query_daily_normal(
-                tuple(station_ids),
-                first["date"].min().strftime("%Y-%m-%d"),
-                first["date"].max().strftime("%Y-%m-%d"),
-            )
+            normal_df, normal_annual_inches = query_daily_normal(tuple(station_ids))
             if not normal_df.empty:
                 normal_lookup = {
                     (int(r.month), int(r.day)): float(r.normal_daily_precip)
@@ -470,12 +538,7 @@ def render_xmacis_style_chart(daily_df, station_ids, chart_title, normal_annual_
                     normal_x.append(xpos)
                     raw_y.append(raw_cumulative)
 
-                # Match the authoritative annual regional baseline exactly.
-                if normal_annual_inches is not None and raw_y and raw_y[-1] > 0:
-                    scale = float(normal_annual_inches) / raw_y[-1]
-                    normal_y = [v * scale for v in raw_y]
-                else:
-                    normal_y = raw_y
+                normal_y = raw_y
 
                 fig.add_trace(go.Scatter(
                     x=normal_x,
@@ -1583,17 +1646,11 @@ if analysis_mode == "Comparison Mode":
             # ---------------------------------------------------------------
 
             st.header("Daily Precipitation & Accumulation")
-            if comparison_mode == "Full Water Years":
-                st.caption(
-                    "Interactive daily precipitation chart. Hover over the lines "
-                    "for the daily value, cumulative accumulation, and stations "
-                    "reporting. The normal line uses 1991–2020 daily climatology."
-                )
-            else:
-                st.caption(
-                    "Interactive daily precipitation chart. Hover over the lines "
-                    "for the daily value, cumulative accumulation, and stations reporting."
-                )
+            st.caption(
+                "Interactive daily precipitation chart. Hover over the lines "
+                "for the daily value, cumulative accumulation, and stations reporting. "
+                "The Normal line uses the region's 1991–2020 Water Year daily average."
+            )
 
             chart_regions = []
             if california_selected and statewide_df is not None and not statewide_df.empty:
@@ -1620,8 +1677,7 @@ if analysis_mode == "Comparison Mode":
                     daily_chart_df,
                     region_ids,
                     f"{region} — Daily Precipitation Accumulation",
-                    normal_annual_inches=23.5 if region == "California" else regions[region]["avg_precip"],
-                    show_normal=(comparison_mode == "Full Water Years"),
+                    show_normal=True,
                 )
 
             # ---------------------------------------------------------------
