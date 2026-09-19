@@ -512,7 +512,7 @@ def get_period_normal_map(station_ids, period_specs, scope_key=None):
     return period_normals, annual_normal
 
 
-def render_xmacis_style_chart(daily_df, station_ids, chart_title, show_normal=True, normal_station_ids=None):
+def render_xmacis_style_chart(daily_df, station_ids, chart_title, show_normal=True, normal_station_ids=None, scope_key=None):
     """Render an XMACIS-style cumulative precipitation chart with hover data."""
     if daily_df is None or daily_df.empty:
         st.info("Daily precipitation data are not available for this chart.")
@@ -612,7 +612,23 @@ def render_xmacis_style_chart(daily_df, station_ids, chart_title, show_normal=Tr
                     normal_x.append(xpos)
                     raw_y.append(raw_cumulative)
 
+                # For full Water Year charts, force the plotted normal to
+                # terminate at the same canonical 1991-2020 annual normal
+                # used everywhere else in the app.  query_daily_normal() can
+                # produce a slightly different endpoint because its daily
+                # curve has its own day-level coverage rules.
                 normal_y = raw_y
+                is_full_water_year = (
+                    len(first["date"]) > 0
+                    and int(first["date"].iloc[0].month) == 7
+                    and int(first["date"].iloc[0].day) == 1
+                    and int(first["date"].iloc[-1].month) == 6
+                    and int(first["date"].iloc[-1].day) == 30
+                )
+                canonical = canonical_annual_normal(scope_key) if is_full_water_year and scope_key else None
+                if canonical is not None and raw_y and raw_y[-1] > 0:
+                    scale = canonical / raw_y[-1]
+                    normal_y = [value * scale for value in raw_y]
 
                 fig.add_trace(go.Scatter(
                     x=normal_x,
@@ -1817,6 +1833,7 @@ if analysis_mode == "Comparison Mode":
                     f"{region} — Daily Precipitation Accumulation",
                     show_normal=True,
                     normal_station_ids=normal_ids,
+                    scope_key=region,
                 )
 
             # ---------------------------------------------------------------
