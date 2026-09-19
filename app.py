@@ -1634,6 +1634,22 @@ if analysis_mode == "Comparison Mode":
                         scope_ids, period_specs
                     )
 
+            # The comparison tables must use the same 1991-2020
+            # station-network normal as Extremes / Records.  build_summary()
+            # initializes pct_base from the legacy CDWR-style annual baseline,
+            # so replace it here with the period-specific station normal for
+            # every hydrological region.
+            for region, normal_map in regional_period_normals.items():
+                mask = summary["region"] == region
+                summary.loc[mask, "pct_base"] = summary.loc[mask, "period_label"].map(
+                    lambda label: (
+                        summary.loc[mask & (summary["period_label"] == label), "avg_precip"].iloc[0]
+                        / normal_map[label] * 100
+                        if normal_map.get(label) not in (None, 0)
+                        else float("nan")
+                    )
+                )
+
             statewide_period_normals = {}
             if california_selected and statewide_df is not None and not statewide_df.empty:
                 statewide_period_normals, _ = get_period_normal_map(
