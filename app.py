@@ -751,16 +751,16 @@ if hydrological_regions_selected or "California" in selected_regions:
     for i, region in enumerate(info_regions):
         with info_cols[i % len(info_cols)]:
             if region == "California":
-                avg = 23.5
-                label = "Statewide California baseline"
+                cdwr_avg = 23.5
+                our_avg = canonical_annual_normal("California")
             else:
-                avg = regions[region]["avg_precip"]
-                label = "Hydrological region baseline"
+                cdwr_avg = regions[region]["avg_precip"]
+                our_avg = canonical_annual_normal(region)
 
             st.info(
                 f"**{region}**\n\n"
-                f"**{avg:.1f}\"** average annual precipitation\n\n"
-                f"{label}"
+                f"**Our 1991–2020 station-network average:** {our_avg:.2f}\"\n\n"
+                f"**CDWR average:** {cdwr_avg:.1f}\""
             )
 
 # ---------------------------------------------------------------------------
