@@ -321,6 +321,25 @@ def query_daily_comparison_series(station_ids, period_specs):
         con.close()
 
 
+CANONICAL_1991_2020_NORMALS = {
+    "California": 25.73,
+    "Central Coast": 21.61,
+    "Colorado River": 4.35,
+    "North Coast": 42.88,
+    "North Lahontan": 33.31,
+    "Sacramento River": 41.52,
+    "San Francisco Bay": 26.73,
+    "San Joaquin River": 26.17,
+    "South Coast": 16.99,
+    "South Lahontan": 8.98,
+    "Tulare Lake": 14.98,
+}
+
+
+def canonical_annual_normal(scope_key):
+    return CANONICAL_1991_2020_NORMALS.get(scope_key)
+
+
 @st.cache_data(show_spinner=False)
 def query_daily_normal(station_ids):
     """Build a station-based 1991-2020 Water Year daily normal.
@@ -460,11 +479,12 @@ def normal_total_for_dates(normal_df, start_date, end_date):
 
 
 @st.cache_data(show_spinner=False)
-def get_period_normal_map(station_ids, period_specs):
-    """Return 1991-2020 station-network normal totals for each period."""
+def get_period_normal_map(station_ids, period_specs, scope_key=None):
+    """Return canonical 1991-2020 normal totals for each period."""
     if not station_ids or not period_specs:
         return {}, None
-    normal_df, annual_normal = query_daily_normal(tuple(station_ids))
+    normal_df, computed_annual = query_daily_normal(tuple(station_ids))
+    annual_normal = canonical_annual_normal(scope_key) if scope_key else computed_annual
     if normal_df.empty:
         return {}, annual_normal
     period_normals = {}
@@ -1631,7 +1651,7 @@ if analysis_mode == "Comparison Mode":
             for region, scope_ids in regional_scope_ids.items():
                 if scope_ids:
                     regional_period_normals[region], _ = get_period_normal_map(
-                        scope_ids, period_specs
+                        scope_ids, period_specs, scope_key=region
                     )
 
             # The comparison tables must use the same 1991-2020
@@ -2205,9 +2225,10 @@ else:
                 cache_key = (scope_key, tuple(sorted(station_ids)))
                 if cache_key not in extreme_normal_cache:
                     extreme_normal_cache[cache_key] = query_daily_normal(tuple(station_ids))
-                normal_df, annual_normal = extreme_normal_cache[cache_key]
+                normal_df, computed_annual = extreme_normal_cache[cache_key]
                 if extreme_type == "Water Years":
-                    return annual_normal
+                    canonical = canonical_annual_normal(scope_key)
+                    return canonical if canonical is not None else computed_annual
                 return normal_total_for_dates(normal_df, period_start, period_end)
 
             def get_ranked_records(records, scope_key, station_ids):
