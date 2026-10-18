@@ -265,25 +265,41 @@ def build_statewide_summary(df_res):
     return statewide
 
 
-def query_daily_comparison_series(station_ids, period_specs):
-    """Return daily regional-mean precipitation for comparison charting.
+def intersect_common_stations(df, expected_periods):
+    """Keep only stations with valid data in every expected period.
 
-    Each period is evaluated using the same station set that survived the
-    comparison's strict common-station filter. The chart therefore shows the
-    same regional population as the summary tables.
+    This is the single station-selection rule used by every comparison mode,
+    for regional rows and for the California statewide rows alike.
+    """
+    if df is None or df.empty:
+        return df
+    counts = df.groupby("station_id")["period_label"].nunique()
+    keep = counts[counts == expected_periods].index
+    return df[df["station_id"].isin(keep)].copy()
+
+
+def query_daily_comparison_series(station_ids, period_specs):
+    """Daily series for the same station set the comparison table averages.
+
+    Every calendar day is averaged over the full fixed station set. A station
+    that did not report on a given day counts as 0 for that day, so the
+    cumulative line ends at the mean of each station's observed period total,
+    which is the table's average. The station_count column is the number of
+    stations that actually reported that day.
     """
     if not station_ids or not period_specs:
         return pd.DataFrame()
 
-    ids_str = ", ".join([f"'{sid}'" for sid in station_ids])
+    ids = sorted(set(station_ids))
+    ids_str = ", ".join([f"'{sid}'" for sid in ids])
     union_queries = []
 
     for idx, spec in enumerate(period_specs):
         union_queries.append(f"""
             SELECT
                 {idx} AS period_index,
-                '{spec['label'].replace("'", "''")}' AS period_label,
                 CAST(date AS DATE) AS date,
+                station_id,
                 CASE
                     WHEN precip IS NULL OR TRIM(CAST(precip AS VARCHAR)) IN ('', 'M') THEN NULL
                     WHEN TRIM(CAST(precip AS VARCHAR)) = 'T' THEN 0.0
@@ -295,31 +311,43 @@ def query_daily_comparison_series(station_ids, period_specs):
               AND CAST(date AS DATE) <= DATE '{spec['end']}'
         """)
 
-    sql = """
-        WITH raw AS (
-            {union}
-        ),
-        daily AS (
-            SELECT
-                period_index,
-                period_label,
-                date,
-                AVG(precip) AS daily_precip,
-                COUNT(precip) AS station_count
-            FROM raw
-            WHERE precip IS NOT NULL
-            GROUP BY period_index, period_label, date
-        )
-        SELECT * FROM daily
-        ORDER BY period_index, date
-    """.format(union=" UNION ALL ".join(union_queries))
+    sql = (
+        "WITH raw AS (" + " UNION ALL ".join(union_queries) + ") "
+        "SELECT period_index, date, station_id, precip "
+        "FROM raw WHERE precip IS NOT NULL"
+    )
 
     con = duckdb.connect()
     try:
-        return con.execute(sql).df()
+        raw = con.execute(sql).df()
     finally:
         con.close()
 
+    n_stations = len(ids)
+    frames = []
+    for idx, spec in enumerate(period_specs):
+        calendar = pd.date_range(
+            pd.Timestamp(spec["start"]), pd.Timestamp(spec["end"]), freq="D"
+        )
+        period_rows = raw[raw["period_index"] == idx]
+        if period_rows.empty:
+            wide = pd.DataFrame(index=calendar)
+        else:
+            wide = (
+                period_rows.assign(date=pd.to_datetime(period_rows["date"]))
+                .pivot_table(index="date", columns="station_id",
+                             values="precip", aggfunc="first")
+                .reindex(calendar)
+            )
+        frames.append(pd.DataFrame({
+            "period_index": idx,
+            "period_label": spec["label"],
+            "date": calendar,
+            "daily_precip": wide.fillna(0.0).sum(axis=1).to_numpy() / n_stations,
+            "station_count": wide.notna().sum(axis=1).to_numpy(),
+        }))
+
+    return pd.concat(frames, ignore_index=True)
 
 CANONICAL_1991_2020_NORMALS = {
     "California": 25.73,
@@ -1538,6 +1566,13 @@ if analysis_mode == "Comparison Mode":
             # California is queried separately using the true state polygon.
             # This keeps statewide results independent of whichever
             # hydrological regions were selected.
+            if comparison_mode == "Full Water Years":
+                expected_n_periods = len(wy_end_years)
+            elif comparison_mode == "Recurring Seasonal Stretch":
+                expected_n_periods = len(years)
+            else:
+                expected_n_periods = len(date_ranges)
+
             statewide_df = None
             if california_selected:
                 if comparison_mode == "Full Water Years":
@@ -1571,6 +1606,11 @@ if analysis_mode == "Comparison Mode":
                             date_ranges,
                         )
 
+            if california_selected:
+                statewide_df = intersect_common_stations(
+                    statewide_df, expected_n_periods
+                )
+
             if df_res is None:
                 df_res = pd.DataFrame()
 
@@ -1588,17 +1628,7 @@ if analysis_mode == "Comparison Mode":
             if not df_res.empty:
                 df_res["region"] = df_res["station_id"].map(station_region_map)
 
-                all_periods = df_res["period_label"].unique()
-                stations_in_all_periods = (
-                    df_res.groupby("station_id")["period_label"]
-                    .nunique()
-                    .loc[lambda x: x == len(all_periods)]
-                    .index
-                )
-
-                df_res = df_res[
-                    df_res["station_id"].isin(stations_in_all_periods)
-                ].copy()
+                df_res = intersect_common_stations(df_res, expected_n_periods)
 
                 if df_res.empty and not california_selected:
                     st.warning(
@@ -1793,8 +1823,10 @@ if analysis_mode == "Comparison Mode":
 
             st.header("Daily Precipitation & Accumulation")
             st.caption(
-                "Interactive daily precipitation chart. Hover over the lines "
-                "for the daily value, cumulative accumulation, and stations reporting. "
+                "Every day uses the same stations as the comparison table. "
+                "The daily value is the average across that fixed set, with a "
+                "station that did not report counted as 0, so the cumulative line "
+                "ends at the table's average total. Hover for stations reporting that day. "
                 "The Normal line uses the fixed full-scope 1991–2020 station-network daily average."
             )
 
