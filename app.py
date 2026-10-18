@@ -1724,7 +1724,7 @@ if analysis_mode == "Comparison Mode":
                 )
 
             regional_station_count = (
-                len(stations_in_all_periods) if not df_res.empty else 0
+                df_res["station_id"].nunique() if not df_res.empty else 0
             )
             st.success(
                 f"Analysis complete — {regional_station_count} stations "
