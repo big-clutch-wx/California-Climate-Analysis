@@ -597,7 +597,6 @@ def render_xmacis_style_chart(daily_df, station_ids, chart_title, show_normal=Tr
             group["date"].dt.strftime("%b %d, %Y"),
             group["daily_precip"].round(2),
             group["cumulative"].round(2),
-            group["station_count"].astype(int),
         ))
 
         fig.add_trace(go.Scatter(
@@ -609,8 +608,7 @@ def render_xmacis_style_chart(daily_df, station_ids, chart_title, show_normal=Tr
             hovertemplate=(
                 "<b>%{customdata[0]}</b><br>"
                 "Daily: %{customdata[1]:.2f}\"<br>"
-                "Accumulation: %{customdata[2]:.2f}\"<br>"
-                "Stations reporting: %{customdata[3]}<extra></extra>"
+                "Accumulation: %{customdata[2]:.2f}\"<extra></extra>"
             ),
             line={"width": 2.5},
         ))
@@ -1826,7 +1824,7 @@ if analysis_mode == "Comparison Mode":
                 "Every day uses the same stations as the comparison table. "
                 "The daily value is the average across that fixed set, with a "
                 "station that did not report counted as 0, so the cumulative line "
-                "ends at the table's average total. Hover for stations reporting that day. "
+                "ends at the table's average total."
                 "The Normal line uses the fixed full-scope 1991–2020 station-network daily average."
             )
 
