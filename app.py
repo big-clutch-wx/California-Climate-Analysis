@@ -2096,7 +2096,8 @@ elif analysis_mode == "Medium-Range Forecast":
     @st.cache_data(ttl=6 * 3600, show_spinner="Fetching WeatherNext 2 ensemble...")
     def cached_member_means(points, forecast_days):
         raw = forecast.fetch_daily_precip(list(points), forecast_days=forecast_days)
-        return forecast.member_region_means(raw)
+        fetched_at = pd.Timestamp.now(tz="UTC")
+        return forecast.member_region_means(raw), fetched_at
 
     # TEMPORARY: California forecast is paused to avoid spending API quota
     # until the WeatherNext data arrives. Remove this set to re-enable it.
@@ -2115,7 +2116,7 @@ elif analysis_mode == "Medium-Range Forecast":
             continue
 
         try:
-            per_member = cached_member_means(tuple(points), 15)
+            per_member, fetched_at = cached_member_means(tuple(points), 15)
         except Exception as exc:
             st.error(f"{region_name}: forecast request failed: {exc}")
             continue
@@ -2123,7 +2124,14 @@ elif analysis_mode == "Medium-Range Forecast":
         summary = forecast.cumulative_summary(per_member)
 
         st.subheader(region_name)
-        st.caption(f"{len(points)} grid points, {per_member['member'].nunique()} members")
+        first_day = per_member["date"].min().strftime("%b %d, %Y")
+        last_day = per_member["date"].max().strftime("%b %d, %Y")
+        st.caption(
+            f"Source: Open-Meteo, WeatherNext 2 ensemble · "
+            f"{len(points)} grid points · {per_member['member'].nunique()} members · "
+            f"Forecast covers {first_day} to {last_day} · "
+            f"Retrieved {fetched_at.strftime('%b %d, %Y %H:%M')} UTC"
+        )
 
         import plotly.graph_objects as go
         fig = go.Figure()
