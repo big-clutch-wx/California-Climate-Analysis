@@ -2093,8 +2093,12 @@ elif analysis_mode == "Medium-Range Forecast":
              "default because the API counts each location toward your quota.",
     )
 
+    # The local date is part of the cache key, so a new forecast day triggers a
+    # fresh fetch and the chart's date range moves forward.
+    forecast_day_key = pd.Timestamp.now(tz="America/Los_Angeles").strftime("%Y-%m-%d")
+
     @st.cache_data(ttl=6 * 3600, show_spinner="Fetching WeatherNext 2 ensemble...")
-    def cached_member_means(points, forecast_days):
+    def cached_member_means(points, forecast_days, day_key):
         raw = forecast.fetch_daily_precip(list(points), forecast_days=forecast_days)
         fetched_at = pd.Timestamp.now(tz="UTC")
         return forecast.member_region_means(raw), fetched_at
@@ -2116,7 +2120,9 @@ elif analysis_mode == "Medium-Range Forecast":
             continue
 
         try:
-            per_member, fetched_at = cached_member_means(tuple(points), 15)
+            per_member, fetched_at = cached_member_means(
+                tuple(points), 15, forecast_day_key
+            )
         except Exception as exc:
             st.error(f"{region_name}: forecast request failed: {exc}")
             continue
