@@ -724,7 +724,7 @@ st.sidebar.markdown("### Analysis Mode")
 
 analysis_mode = st.sidebar.radio(
     "Mode:",
-    ["Comparison Mode", "Extremes / Records"],
+    ["Comparison Mode", "Extremes / Records", "Medium-Range Forecast"],
     index=0,
 )
 
@@ -2065,7 +2065,106 @@ if analysis_mode == "Comparison Mode":
 # Extremes / Records
 # ---------------------------------------------------------------------------
 
-else:
+# ---------------------------------------------------------------------------
+# Medium-Range Forecast (WeatherNext 2 via Open-Meteo)
+# ---------------------------------------------------------------------------
+
+elif analysis_mode == "Medium-Range Forecast":
+
+    st.header("Medium-Range Forecast (WeatherNext 2)")
+    st.caption(
+        "64-member ensemble, 15 days, averaged over the grid cells inside each "
+        "selected hydrological region. Values are inches per day. The shaded band "
+        "is the 10th to 90th percentile across members."
+    )
+
+    try:
+        import forecast
+    except ImportError:
+        st.error("forecast.py is missing from the app folder.")
+        st.stop()
+
+    grid_step = st.selectbox(
+        "Grid spacing (degrees)",
+        [0.5, 0.25],
+        index=0,
+        help="0.5 uses about a quarter of the grid points of 0.25 and is the "
+             "default because the API counts each location toward your quota.",
+    )
+
+    @st.cache_data(ttl=6 * 3600, show_spinner="Fetching WeatherNext 2 ensemble...")
+    def cached_member_means(points, forecast_days):
+        raw = forecast.fetch_daily_precip(list(points), forecast_days=forecast_days)
+        return forecast.member_region_means(raw)
+
+    for region_name in selected_regions:
+        polygon = regions[region_name]["polygon"]
+        points = forecast.grid_points(
+            polygon, engine.point_in_polygon, step=grid_step
+        )
+        if not points:
+            st.warning(f"No grid points fall inside {region_name} at this spacing.")
+            continue
+
+        try:
+            per_member = cached_member_means(tuple(points), 15)
+        except Exception as exc:
+            st.error(f"{region_name}: forecast request failed: {exc}")
+            continue
+
+        summary = forecast.ensemble_summary(per_member)
+        for col in ["mean", "p10", "median", "p90"]:
+            summary[col] = summary[col] / forecast.MM_PER_INCH
+
+        st.subheader(region_name)
+        st.caption(f"{len(points)} grid points, {per_member['member'].nunique()} members")
+
+        import plotly.graph_objects as go
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=summary["date"], y=summary["p90"],
+            mode="lines", line={"width": 0}, showlegend=False, hoverinfo="skip",
+        ))
+        fig.add_trace(go.Scatter(
+            x=summary["date"], y=summary["p10"],
+            mode="lines", line={"width": 0}, fill="tonexty",
+            fillcolor="rgba(70,130,180,0.25)", name="10th–90th percentile",
+        ))
+        fig.add_trace(go.Scatter(
+            x=summary["date"], y=summary["median"],
+            mode="lines", name="Median", line={"width": 2.5},
+        ))
+        fig.add_trace(go.Scatter(
+            x=summary["date"], y=summary["mean"],
+            mode="lines", name="Mean", line={"width": 2, "dash": "dash"},
+        ))
+        fig.update_layout(
+            yaxis_title="Daily precipitation (in)",
+            xaxis_title="Date",
+            hovermode="x unified",
+            height=420,
+            margin={"t": 30},
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        table = summary.copy()
+        table["date"] = table["date"].dt.strftime("%a %b %d")
+        table = table.rename(columns={
+            "date": "Day", "mean": "Mean (in)", "p10": "10th pct (in)",
+            "median": "Median (in)", "p90": "90th pct (in)",
+        })
+        st.dataframe(
+            table.round(2),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    st.caption(
+        "Skill declines with lead time. Treat later days as a range of possibilities, "
+        "not a single expected total. Data: Open-Meteo, Google WeatherNext 2."
+    )
+
+elif analysis_mode == "Extremes / Records":
     st.header("Extremes / Records")
 
     extreme_type = st.radio(
