@@ -2098,7 +2098,14 @@ elif analysis_mode == "Medium-Range Forecast":
         raw = forecast.fetch_daily_precip(list(points), forecast_days=forecast_days)
         return forecast.member_region_means(raw)
 
+    # TEMPORARY: California forecast is paused to avoid spending API quota
+    # until the WeatherNext data arrives. Remove this set to re-enable it.
+    FORECAST_PAUSED_REGIONS = {"California"}
+
     for region_name in selected_regions:
+        if region_name in FORECAST_PAUSED_REGIONS:
+            st.info(f"{region_name} forecast is paused until the WeatherNext data is available.")
+            continue
         polygon = regions[region_name]["polygon"]
         points = forecast.grid_points(
             polygon, engine.point_in_polygon, step=grid_step
