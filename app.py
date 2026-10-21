@@ -2100,11 +2100,8 @@ elif analysis_mode == "Medium-Range Forecast":
 
     for region_name in selected_regions:
         polygon = regions[region_name]["polygon"]
-        # The statewide polygon is large; 0.5 degrees needs over 200 requests
-        # worth of locations and trips the API rate limit. Use 1.0 for it.
-        region_step = max(grid_step, 1.0) if region_name == "California" else grid_step
         points = forecast.grid_points(
-            polygon, engine.point_in_polygon, step=region_step
+            polygon, engine.point_in_polygon, step=grid_step
         )
         if not points:
             st.warning(f"No grid points fall inside {region_name} at this spacing.")
