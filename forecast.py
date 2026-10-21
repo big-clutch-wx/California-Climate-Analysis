@@ -3,6 +3,10 @@
 Source: Open-Meteo ensemble API, model google_weathernext2_ensemble
 (64 members, 0.25 degree grid, 15 days, runs at 00 and 12 UTC).
 
+Daily totals are built from the hourly values. The API's daily precipitation_sum
+is blank for some days that the hourly data covers, so summing the 24 hours of
+each local day gives a complete window.
+
 This module does not import compare.py. The app passes in the region polygon
 and point-in-polygon function it already loaded, so boundaries are defined once.
 """
@@ -32,11 +36,7 @@ def grid_points(polygon, in_polygon, step=0.5):
 
 
 def _get_with_retry(params):
-    """GET the ensemble endpoint. One retry after a capped wait on a 429.
-
-    The wait is capped so the page fails within about half a minute instead of
-    appearing to hang. If the limit is still in place, the message says so.
-    """
+    """GET the ensemble endpoint. One retry after a capped wait on a 429."""
     resp = None
     for attempt in range(2):
         resp = requests.get(ENSEMBLE_URL, params=params, timeout=60)
@@ -52,8 +52,14 @@ def _get_with_retry(params):
     )
 
 
-def fetch_daily_precip(points, forecast_days=15, timezone="America/Los_Angeles"):
-    """Long-format DataFrame: member, date, grid_index, precip_mm."""
+def fetch_daily_precip(points, forecast_days=16, timezone="America/Los_Angeles"):
+    """Hourly member precipitation for each point, as a long DataFrame.
+
+    Columns: member, time (local), grid_index, precip_mm. The name is kept from
+    earlier versions; the values are hourly. Member columns are matched on the
+    'precipitation' prefix and 'member' in the name, and should be checked on the
+    first real response.
+    """
     rows = []
     chunks = [points[i:i + MAX_POINTS_PER_CALL]
               for i in range(0, len(points), MAX_POINTS_PER_CALL)]
@@ -64,21 +70,24 @@ def fetch_daily_precip(points, forecast_days=15, timezone="America/Los_Angeles")
         payload = _get_with_retry({
             "latitude": ",".join(str(p[0]) for p in chunk),
             "longitude": ",".join(str(p[1]) for p in chunk),
-            "daily": "precipitation_sum",
+            "hourly": "precipitation",
             "models": MODEL,
             "forecast_days": forecast_days,
             "timezone": timezone,
         })
         locations = payload if isinstance(payload, list) else [payload]
         for offset, loc in enumerate(locations):
-            daily = loc["daily"]
-            for key, values in daily.items():
-                if not key.startswith("precipitation_sum"):
+            hourly = loc["hourly"]
+            times = pd.to_datetime(hourly["time"])
+            for key, values in hourly.items():
+                if key == "time" or not key.startswith("precipitation"):
                     continue
-                for date, value in zip(daily["time"], values):
+                if "member" not in key:
+                    continue
+                for t, value in zip(times, values):
                     rows.append({
                         "member": key,
-                        "date": pd.Timestamp(date),
+                        "time": t,
                         "grid_index": start + offset,
                         "precip_mm": value,
                     })
@@ -86,19 +95,32 @@ def fetch_daily_precip(points, forecast_days=15, timezone="America/Los_Angeles")
 
 
 def member_region_means(raw, max_days=15):
-    """Average over grid cells, giving one value per member per day (mm).
+    """Regional daily totals per member (mm), from hourly values.
 
-    Days with no data are dropped, and the result keeps the first max_days days
-    that have data, so the window stays at max_days even when the API returns an
-    extra day at the end.
+    1. Sum each grid cell's hourly values by local day.
+    2. Keep only days with all 24 hours present, so partial days are dropped.
+    3. Average the cells inside the region, per member and day.
+    4. Keep the first max_days complete days.
     """
-    per_member = (
-        raw.groupby(["member", "date"], as_index=False)["precip_mm"].mean()
-        .rename(columns={"precip_mm": "region_precip_mm"})
+    if raw.empty:
+        return pd.DataFrame(columns=["member", "date", "region_precip_mm"])
+
+    df = raw.dropna(subset=["precip_mm"]).copy()
+    df["date"] = df["time"].dt.normalize()
+
+    cell_daily = (
+        df.groupby(["member", "grid_index", "date"])["precip_mm"]
+        .agg(total="sum", hours="count")
+        .reset_index()
     )
-    per_member = per_member.dropna(subset=["region_precip_mm"])
-    keep_dates = sorted(per_member["date"].unique())[:max_days]
-    return per_member[per_member["date"].isin(keep_dates)].reset_index(drop=True)
+    cell_daily = cell_daily[cell_daily["hours"] == 24]
+
+    region = (
+        cell_daily.groupby(["member", "date"], as_index=False)["total"].mean()
+        .rename(columns={"total": "region_precip_mm"})
+    )
+    keep_dates = sorted(region["date"].unique())[:max_days]
+    return region[region["date"].isin(keep_dates)].reset_index(drop=True)
 
 
 def cumulative_summary(per_member):
