@@ -85,14 +85,20 @@ def fetch_daily_precip(points, forecast_days=15, timezone="America/Los_Angeles")
     return pd.DataFrame(rows)
 
 
-def member_region_means(raw):
-    """Average over grid cells, giving one value per member per day (mm)."""
+def member_region_means(raw, max_days=15):
+    """Average over grid cells, giving one value per member per day (mm).
+
+    Days with no data are dropped, and the result keeps the first max_days days
+    that have data, so the window stays at max_days even when the API returns an
+    extra day at the end.
+    """
     per_member = (
         raw.groupby(["member", "date"], as_index=False)["precip_mm"].mean()
         .rename(columns={"precip_mm": "region_precip_mm"})
     )
-    # The last forecast day can be incomplete, so drop days with no data.
-    return per_member.dropna(subset=["region_precip_mm"])
+    per_member = per_member.dropna(subset=["region_precip_mm"])
+    keep_dates = sorted(per_member["date"].unique())[:max_days]
+    return per_member[per_member["date"].isin(keep_dates)].reset_index(drop=True)
 
 
 def cumulative_summary(per_member):

@@ -2099,9 +2099,11 @@ elif analysis_mode == "Medium-Range Forecast":
 
     @st.cache_data(ttl=6 * 3600, show_spinner="Fetching WeatherNext 2 ensemble...")
     def cached_member_means(points, forecast_days, day_key):
-        raw = forecast.fetch_daily_precip(list(points), forecast_days=forecast_days)
+        # Request one extra day, because the API leaves the last day empty.
+        # member_region_means keeps the first forecast_days days with data.
+        raw = forecast.fetch_daily_precip(list(points), forecast_days=forecast_days + 1)
         fetched_at = pd.Timestamp.now(tz="UTC")
-        return forecast.member_region_means(raw), fetched_at
+        return forecast.member_region_means(raw, max_days=forecast_days), fetched_at
 
     # TEMPORARY: California forecast is paused to avoid spending API quota
     # until the WeatherNext data arrives. Remove this set to re-enable it.
