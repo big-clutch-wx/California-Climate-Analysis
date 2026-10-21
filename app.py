@@ -2074,8 +2074,9 @@ elif analysis_mode == "Medium-Range Forecast":
     st.header("Medium-Range Forecast (WeatherNext 2)")
     st.caption(
         "64-member ensemble, 15 days, averaged over the grid cells inside each "
-        "selected hydrological region. Values are inches per day. The shaded band "
-        "is the 10th to 90th percentile across members."
+        "selected hydrological region. The line shows cumulative precipitation "
+        "from the forecast start, in inches. The shaded band is the 10th to 90th "
+        "percentile of the cumulative totals across members."
     )
 
     try:
@@ -2112,9 +2113,7 @@ elif analysis_mode == "Medium-Range Forecast":
             st.error(f"{region_name}: forecast request failed: {exc}")
             continue
 
-        summary = forecast.ensemble_summary(per_member)
-        for col in ["mean", "p10", "median", "p90"]:
-            summary[col] = summary[col] / forecast.MM_PER_INCH
+        summary = forecast.cumulative_summary(per_member)
 
         st.subheader(region_name)
         st.caption(f"{len(points)} grid points, {per_member['member'].nunique()} members")
@@ -2138,8 +2137,9 @@ elif analysis_mode == "Medium-Range Forecast":
             x=summary["date"], y=summary["mean"],
             mode="lines", name="Mean", line={"width": 2, "dash": "dash"},
         ))
+        fig.update_traces(hovertemplate="%{y:.2f} in")
         fig.update_layout(
-            yaxis_title="Daily precipitation (in)",
+            yaxis_title="Cumulative precipitation (in)",
             xaxis_title="Date",
             hovermode="x unified",
             height=420,
@@ -2150,8 +2150,8 @@ elif analysis_mode == "Medium-Range Forecast":
         table = summary.copy()
         table["date"] = table["date"].dt.strftime("%a %b %d")
         table = table.rename(columns={
-            "date": "Day", "mean": "Mean (in)", "p10": "10th pct (in)",
-            "median": "Median (in)", "p90": "90th pct (in)",
+            "date": "Day", "mean": "Cumulative mean (in)", "p10": "Cumulative 10th pct (in)",
+            "median": "Cumulative median (in)", "p90": "Cumulative 90th pct (in)",
         })
         st.dataframe(
             table.round(2),
