@@ -16,7 +16,6 @@ ENSEMBLE_URL = "https://ensemble-api.open-meteo.com/v1/ensemble"
 MODEL = "google_weathernext2_ensemble"
 MAX_POINTS_PER_CALL = 50
 PAUSE_BETWEEN_CALLS_S = 2.0
-MAX_ATTEMPTS = 4
 MM_PER_INCH = 25.4
 
 
@@ -33,18 +32,23 @@ def grid_points(polygon, in_polygon, step=0.5):
 
 
 def _get_with_retry(params):
-    """GET the ensemble endpoint, backing off on 429 responses."""
+    """GET the ensemble endpoint. One retry after a capped wait on a 429.
+
+    The wait is capped so the page fails within about half a minute instead of
+    appearing to hang. If the limit is still in place, the message says so.
+    """
     resp = None
-    for attempt in range(MAX_ATTEMPTS):
+    for attempt in range(2):
         resp = requests.get(ENSEMBLE_URL, params=params, timeout=60)
         if resp.status_code != 429:
             resp.raise_for_status()
             return resp.json()
-        wait = float(resp.headers.get("Retry-After", 5 * 2 ** attempt))
-        time.sleep(min(wait, 60))
+        if attempt == 0:
+            wait = min(float(resp.headers.get("Retry-After", 10)), 20)
+            time.sleep(wait)
     raise RuntimeError(
-        f"Open-Meteo rate limit still in place after {MAX_ATTEMPTS} attempts. "
-        f"Wait a few minutes, or use a coarser grid. Server said: {resp.text[:200]}"
+        "Open-Meteo is rate limiting this app right now. Wait a few minutes and "
+        "reload, or use a coarser grid. Server said: " + resp.text[:200]
     )
 
 

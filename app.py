@@ -2100,8 +2100,11 @@ elif analysis_mode == "Medium-Range Forecast":
 
     for region_name in selected_regions:
         polygon = regions[region_name]["polygon"]
+        # The statewide polygon is large; 0.5 degrees needs over 200 requests
+        # worth of locations and trips the API rate limit. Use 1.0 for it.
+        region_step = max(grid_step, 1.0) if region_name == "California" else grid_step
         points = forecast.grid_points(
-            polygon, engine.point_in_polygon, step=grid_step
+            polygon, engine.point_in_polygon, step=region_step
         )
         if not points:
             st.warning(f"No grid points fall inside {region_name} at this spacing.")
@@ -2120,24 +2123,35 @@ elif analysis_mode == "Medium-Range Forecast":
 
         import plotly.graph_objects as go
         fig = go.Figure()
+        # Each trace gets an explicit hover label, so none shows as "trace N".
         fig.add_trace(go.Scatter(
-            x=summary["date"], y=summary["p90"],
-            mode="lines", line={"width": 0}, showlegend=False, hoverinfo="skip",
+            x=summary["date"], y=summary["p90"], mode="lines",
+            line={"width": 0}, showlegend=False,
+            hovertemplate="90th pct: %{y:.2f} in<extra></extra>",
         ))
         fig.add_trace(go.Scatter(
-            x=summary["date"], y=summary["p10"],
-            mode="lines", line={"width": 0}, fill="tonexty",
+            x=summary["date"], y=summary["p10"], mode="lines",
+            line={"width": 0}, fill="tonexty",
             fillcolor="rgba(70,130,180,0.25)", name="10th–90th percentile",
+            hovertemplate="10th pct: %{y:.2f} in<extra></extra>",
         ))
         fig.add_trace(go.Scatter(
-            x=summary["date"], y=summary["median"],
-            mode="lines", name="Median", line={"width": 2.5},
+            x=summary["date"], y=summary["median"], mode="lines",
+            name="Median", line={"width": 2.5},
+            hovertemplate="Median: %{y:.2f} in<extra></extra>",
         ))
         fig.add_trace(go.Scatter(
-            x=summary["date"], y=summary["mean"],
-            mode="lines", name="Mean", line={"width": 2, "dash": "dash"},
+            x=summary["date"], y=summary["mean"], mode="lines",
+            name="Mean", line={"width": 2, "dash": "dash"},
+            hovertemplate="Mean: %{y:.2f} in<extra></extra>",
         ))
-        fig.update_traces(hovertemplate="%{y:.2f} in")
+        fig.update_layout(
+            yaxis_title="Cumulative precipitation (in)",
+            xaxis_title="Date",
+            hovermode="x unified",
+            height=420,
+            margin={"t": 30},
+        )
         fig.update_layout(
             yaxis_title="Cumulative precipitation (in)",
             xaxis_title="Date",
