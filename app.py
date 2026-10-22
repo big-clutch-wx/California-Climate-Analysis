@@ -2095,7 +2095,13 @@ elif analysis_mode == "Medium-Range Forecast":
 
     # The local date is part of the cache key, so a new forecast day triggers a
     # fresh fetch and the chart's date range moves forward.
-    forecast_day_key = pd.Timestamp.now(tz="America/Los_Angeles").strftime("%Y-%m-%d")
+    # FORECAST_CACHE_VERSION changes whenever the fetch logic changes, so results
+    # cached by an older version of forecast.py are not reused from disk.
+    FORECAST_CACHE_VERSION = "hourly-v3"
+    forecast_day_key = (
+        FORECAST_CACHE_VERSION + "|"
+        + pd.Timestamp.now(tz="America/Los_Angeles").strftime("%Y-%m-%d")
+    )
 
     @st.cache_data(ttl=6 * 3600, show_spinner="Fetching WeatherNext 2 ensemble...")
     def cached_member_means(points, forecast_days, day_key):

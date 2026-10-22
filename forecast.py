@@ -82,11 +82,12 @@ def fetch_daily_precip(points, forecast_days=16, timezone="America/Los_Angeles")
             for key, values in hourly.items():
                 if key == "time" or not key.startswith("precipitation"):
                     continue
-                if "member" not in key:
-                    continue
+                # The plain 'precipitation' field is the control run, the 64th
+                # ensemble member. Numbered fields are members 1 to 63.
+                member = "precipitation_control" if key == "precipitation" else key
                 for t, value in zip(times, values):
                     rows.append({
-                        "member": key,
+                        "member": member,
                         "time": t,
                         "grid_index": start + offset,
                         "precip_mm": value,
