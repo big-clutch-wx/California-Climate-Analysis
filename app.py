@@ -2089,8 +2089,7 @@ elif analysis_mode == "Medium-Range Forecast":
         "Grid spacing (degrees)",
         [0.5, 0.25],
         index=0,
-        help="0.5 uses about a quarter of the grid points of 0.25 and is the "
-             "default because the API counts each location toward your quota.",
+        help="0.5 uses about a quarter of the grid points of 0.25 and is the default",
     )
 
     # The local date is part of the cache key, so a new forecast day triggers a
