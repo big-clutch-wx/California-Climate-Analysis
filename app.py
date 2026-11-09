@@ -2276,7 +2276,7 @@ elif analysis_mode == "Medium-Range Forecast":
                 colorbar=dict(
                     tickvals=[i - 0.5 for i in range(1, nb)],
                     ticktext=[("%g" % e) for e in forecast.PLUME_EDGES],
-                    tickfont={"size": 8}, len=0.9, y=0.55, thickness=24, title="in",
+                    tickfont={"size": 12}, len=0.9, y=0.55, thickness=24, title="in",
                 ) if show_scale else None,
             )
             xs, ys = np.meshgrid(mm_days, list(frame.index))
