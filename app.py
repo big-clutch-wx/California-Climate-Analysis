@@ -2115,10 +2115,24 @@ elif analysis_mode == "Medium-Range Forecast":
     # until the WeatherNext data arrives. Remove this set to re-enable it.
     FORECAST_PAUSED_REGIONS = {"California"}
 
-    # The matrix is drawn in this slot after the loop, so it appears above the
-    # per-region charts but reuses the same cached data (no extra API calls).
-    matrix_slot = st.container()
-    region_members = {}
+    # Controls for the daily precipitation matrix drawn under each region's chart.
+    mcol1, mcol2 = st.columns(2)
+    matrix_metric = mcol1.radio(
+        "Daily matrix shows",
+        ["Chance of rain", "Median daily total"],
+        horizontal=True,
+        key="fc_matrix_metric",
+    )
+    threshold_in = mcol2.selectbox(
+        "Rain threshold (in/day)",
+        [0.01, 0.10, 0.25, 0.50, 1.00],
+        index=1,
+        disabled=(matrix_metric != "Chance of rain"),
+        key="fc_matrix_threshold",
+        help="A member counts as 'rain' when the region-wide average "
+             "for the day is at or above this amount.",
+    )
+    use_chance = matrix_metric == "Chance of rain"
 
     for region_name in selected_regions:
         if region_name in FORECAST_PAUSED_REGIONS:
@@ -2140,7 +2154,6 @@ elif analysis_mode == "Medium-Range Forecast":
             st.error(f"{region_name}: forecast request failed: {exc}")
             continue
 
-        region_members[region_name] = per_member
         summary = forecast.cumulative_summary(per_member)
 
         st.subheader(region_name)
@@ -2197,6 +2210,38 @@ elif analysis_mode == "Medium-Range Forecast":
             table.round(2),
             use_container_width=True,
             hide_index=True,
+        )
+
+        # Daily precipitation matrix for this region (chance of rain or median).
+        st.markdown("**Daily precipitation matrix**")
+        matrix = forecast.daily_matrix(
+            {region_name: per_member},
+            metric="chance" if use_chance else "median",
+            threshold_in=threshold_in,
+        )
+        day_labels = [d.strftime("%a %b %d") for d in matrix.columns]
+        fig_m = go.Figure(go.Heatmap(
+            z=matrix.values, x=day_labels, y=list(matrix.index),
+            colorscale="Blues", zmin=0, zmax=100 if use_chance else None,
+            text=matrix.round(0 if use_chance else 2).values,
+            texttemplate="%{text}%" if use_chance else "%{text}",
+            hovertemplate=(
+                "%{x}<br>"
+                + ("Chance of ≥ " + f"{threshold_in:.2f}" + " in: %{z:.0f}%"
+                   if use_chance else "Median: %{z:.2f} in")
+                + "<extra></extra>"
+            ),
+            colorbar={"title": "%" if use_chance else "in"},
+        ))
+        fig_m.update_layout(
+            height=190, margin={"t": 10, "b": 10},
+            xaxis={"side": "top"}, yaxis={"autorange": "reversed"},
+        )
+        st.plotly_chart(fig_m, use_container_width=True)
+        st.caption(
+            "Uses the 64 WeatherNext 2 members. Values describe the region-wide "
+            "average for the day, so a cell can read low even when a single "
+            "location in the region gets rain."
         )
 
         # Member-by-day plume matrix: x = day, y = member, MEAN panel at the bottom.
@@ -2273,71 +2318,6 @@ elif analysis_mode == "Medium-Range Forecast":
             mime="text/csv",
             key=f"fc_member_csv_{region_name}",
         )
-
-    with matrix_slot:
-        if region_members:
-            st.subheader("Daily precipitation matrix")
-            mcol1, mcol2 = st.columns(2)
-            matrix_metric = mcol1.radio(
-                "Cells show",
-                ["Chance of rain", "Median daily total"],
-                horizontal=True,
-                key="fc_matrix_metric",
-            )
-            threshold_in = mcol2.selectbox(
-                "Rain threshold (in/day)",
-                [0.01, 0.10, 0.25, 0.50, 1.00],
-                index=1,
-                disabled=(matrix_metric != "Chance of rain"),
-                key="fc_matrix_threshold",
-                help="A member counts as 'rain' when the region-wide average "
-                     "for the day is at or above this amount.",
-            )
-            use_chance = matrix_metric == "Chance of rain"
-            matrix = forecast.daily_matrix(
-                region_members,
-                metric="chance" if use_chance else "median",
-                threshold_in=threshold_in,
-            )
-            import plotly.graph_objects as go
-            day_labels = [d.strftime("%a %b %d") for d in matrix.columns]
-            fig_m = go.Figure(go.Heatmap(
-                z=matrix.values,
-                x=day_labels,
-                y=list(matrix.index),
-                colorscale="Blues",
-                zmin=0,
-                zmax=100 if use_chance else None,
-                text=matrix.round(0 if use_chance else 2).values,
-                texttemplate="%{text}%" if use_chance else "%{text}",
-                hovertemplate=(
-                    "%{y}<br>%{x}<br>"
-                    + ("Chance of ≥ " + f"{threshold_in:.2f}" + " in: %{z:.0f}%"
-                       if use_chance else "Median: %{z:.2f} in")
-                    + "<extra></extra>"
-                ),
-                colorbar={"title": "%" if use_chance else "in"},
-            ))
-            fig_m.update_layout(
-                height=max(260, 48 * len(matrix.index) + 120),
-                margin={"t": 20},
-                yaxis={"autorange": "reversed"},
-                xaxis={"side": "top"},
-            )
-            st.plotly_chart(fig_m, use_container_width=True)
-            st.caption(
-                "Each cell uses the 64 WeatherNext 2 members. Values describe the "
-                "region-wide average for the day, so a cell can read low even when "
-                "a single location in the region gets rain."
-            )
-            csv_name = "wn2_" + ("chance_ge_" + f"{threshold_in:.2f}in" if use_chance else "median_in") + ".csv"
-            st.download_button(
-                "Download matrix as CSV",
-                matrix.round(2).rename(columns=lambda d: d.strftime("%Y-%m-%d"))
-                      .to_csv(index_label="Region"),
-                file_name=csv_name,
-                mime="text/csv",
-            )
 
     st.caption(
         "Skill declines with lead time. Treat later days as a range of possibilities, "
