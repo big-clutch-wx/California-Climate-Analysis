@@ -2258,7 +2258,7 @@ elif analysis_mode == "Medium-Range Forecast":
         n_members = len(members_only)
         nb = len(forecast.PLUME_COLORS)
 
-        def _plume_panel(frame, yaxis_id, show_scale):
+        def _plume_panel(frame, yaxis_id, show_scale, font_size=9):
             vals = frame.values
             bins = forecast.plume_bin(vals)
             light = forecast.plume_text_is_light(bins)
@@ -2270,7 +2270,7 @@ elif analysis_mode == "Medium-Range Forecast":
                 colorscale=forecast.plume_colorscale(), zmin=-0.5, zmax=nb - 0.5,
                 xgap=1, ygap=1, yaxis=yaxis_id,
                 customdata=vals, text=dark_txt, texttemplate="%{text}",
-                textfont={"size": 9, "color": "black"},
+                textfont={"size": font_size, "color": "black"},
                 hovertemplate="%{y}<br>%{x}<br>%{customdata:.2f} in<extra></extra>",
                 showscale=show_scale,
                 colorbar=dict(
@@ -2282,7 +2282,7 @@ elif analysis_mode == "Medium-Range Forecast":
             xs, ys = np.meshgrid(mm_days, list(frame.index))
             over = go.Scatter(
                 x=xs.ravel(), y=ys.ravel(), mode="text", text=light_txt.ravel(),
-                textfont={"size": 9, "color": "white"}, hoverinfo="skip",
+                textfont={"size": font_size, "color": "white"}, hoverinfo="skip",
                 showlegend=False, xaxis="x", yaxis=yaxis_id,
             )
             return heat, over
@@ -2290,7 +2290,7 @@ elif analysis_mode == "Medium-Range Forecast":
         fig_mm = go.Figure()
         for tr in _plume_panel(members_only, "y", True):
             fig_mm.add_trace(tr)
-        for tr in _plume_panel(mean_row, "y2", False):
+        for tr in _plume_panel(mean_row, "y2", False, font_size=14):
             fig_mm.add_trace(tr)
         fig_mm.update_layout(
             height=max(520, 15 * n_members + 200),
