@@ -144,3 +144,52 @@ def cumulative_summary(per_member):
     for col in ["mean", "p10", "median", "p90"]:
         summary[col] = summary[col].round(2)
     return summary
+
+
+def daily_matrix(region_members, metric="chance", threshold_in=0.10):
+    """Region-by-day table from per-member regional daily totals.
+
+    region_members: {region_name: DataFrame[member, date, region_precip_mm]}
+    metric "chance": percent of members whose regional-average daily total is at
+        or above threshold_in inches.
+    metric "median": median across members of the regional daily total, inches.
+    Values are for the region-wide average, not for any single point in it.
+    """
+    rows = {}
+    for region, pm in region_members.items():
+        inches = pm["region_precip_mm"] / MM_PER_INCH
+        by_day = pm["date"]
+        if metric == "chance":
+            rows[region] = (inches >= threshold_in).groupby(by_day).mean() * 100
+        else:
+            rows[region] = inches.groupby(by_day).median()
+    return pd.DataFrame(rows).T.sort_index(axis=1)
+
+
+def member_matrix(per_member, cumulative=False):
+    """Members-by-day table in inches, rounded to 0.01, with a Mean row last.
+
+    per_member: DataFrame[member, date, region_precip_mm] for one region.
+    cumulative: accumulate each member over the days first, then average, so
+        the Mean row is the mean of the members' own running totals.
+    Rows are members (Control first, then M01...), columns are dates.
+    """
+    df = per_member.copy()
+    df["inches"] = df["region_precip_mm"] / MM_PER_INCH
+    wide = df.pivot(index="member", columns="date", values="inches").sort_index(axis=1)
+    if cumulative:
+        wide = wide.cumsum(axis=1)
+
+    def label(m):
+        text = str(m)
+        if "control" in text.lower():
+            return "Control"
+        digits = "".join(ch for ch in text if ch.isdigit())
+        return f"M{int(digits):02d}" if digits else text
+
+    order = sorted(wide.index, key=lambda m: (0, 0) if "control" in str(m).lower()
+                   else (1, int("".join(ch for ch in str(m) if ch.isdigit()) or 0)))
+    wide = wide.loc[order]
+    wide.index = [label(m) for m in wide.index]
+    wide.loc["Mean"] = wide.mean(axis=0)
+    return wide.round(2)

@@ -2089,7 +2089,8 @@ elif analysis_mode == "Medium-Range Forecast":
         "Grid spacing (degrees)",
         [0.5, 0.25],
         index=0,
-        help="0.5 uses about a quarter of the grid points of 0.25 and is the default",
+        help="0.5 uses about a quarter of the grid points of 0.25 and is the "
+             "default because the API counts each location toward your quota.",
     )
 
     # The local date is part of the cache key, so a new forecast day triggers a
@@ -2114,6 +2115,11 @@ elif analysis_mode == "Medium-Range Forecast":
     # until the WeatherNext data arrives. Remove this set to re-enable it.
     FORECAST_PAUSED_REGIONS = {"California"}
 
+    # The matrix is drawn in this slot after the loop, so it appears above the
+    # per-region charts but reuses the same cached data (no extra API calls).
+    matrix_slot = st.container()
+    region_members = {}
+
     for region_name in selected_regions:
         if region_name in FORECAST_PAUSED_REGIONS:
             st.info(f"{region_name} forecast is paused until the WeatherNext data is available.")
@@ -2134,6 +2140,7 @@ elif analysis_mode == "Medium-Range Forecast":
             st.error(f"{region_name}: forecast request failed: {exc}")
             continue
 
+        region_members[region_name] = per_member
         summary = forecast.cumulative_summary(per_member)
 
         st.subheader(region_name)
@@ -2177,13 +2184,6 @@ elif analysis_mode == "Medium-Range Forecast":
             height=420,
             margin={"t": 30},
         )
-        fig.update_layout(
-            yaxis_title="Cumulative precipitation (in)",
-            xaxis_title="Date",
-            hovermode="x unified",
-            height=420,
-            margin={"t": 30},
-        )
         st.plotly_chart(fig, use_container_width=True)
 
         table = summary.copy()
@@ -2197,6 +2197,118 @@ elif analysis_mode == "Medium-Range Forecast":
             use_container_width=True,
             hide_index=True,
         )
+
+        # Member-by-day matrix: x = day, y = ensemble member, Mean row at the bottom.
+        st.markdown("**Member matrix**")
+        mm_mode = st.radio(
+            "Matrix values",
+            ["Daily", "Cumulative"],
+            horizontal=True,
+            key=f"fc_member_mode_{region_name}",
+        )
+        mm = forecast.member_matrix(per_member, cumulative=(mm_mode == "Cumulative"))
+        members_only = mm.iloc[:-1]
+        zmax = float(max(members_only.to_numpy().max(), 0.01))
+        mm_days = [d.strftime("%a %b %d") for d in mm.columns]
+        n_members = len(members_only)
+
+        fig_mm = go.Figure()
+        fig_mm.add_trace(go.Heatmap(
+            z=members_only.values, x=mm_days, y=list(members_only.index),
+            colorscale="Blues", zmin=0, zmax=zmax, xgap=1, ygap=1,
+            colorbar={"title": "in"}, yaxis="y",
+            hovertemplate="%{y}<br>%{x}<br>%{z:.2f} in<extra></extra>",
+        ))
+        fig_mm.add_trace(go.Heatmap(
+            z=mm.loc[["Mean"]].values, x=mm_days, y=["Mean"],
+            colorscale="Blues", zmin=0, zmax=zmax, xgap=1, ygap=1,
+            showscale=False, yaxis="y2",
+            text=mm.loc[["Mean"]].values, texttemplate="%{text:.2f}",
+            hovertemplate="Mean<br>%{x}<br>%{z:.2f} in<extra></extra>",
+        ))
+        fig_mm.update_layout(
+            height=max(420, 11 * n_members + 160),
+            margin={"t": 30},
+            xaxis={"side": "top", "type": "category"},
+            yaxis={"domain": [0.08, 1.0], "autorange": "reversed", "type": "category",
+                   "tickfont": {"size": 9},
+                   "tickmode": "array", "tickvals": list(members_only.index),
+                   "ticktext": list(members_only.index)},
+            yaxis2={"domain": [0.0, 0.06], "type": "category", "anchor": "x"},
+        )
+        st.plotly_chart(fig_mm, use_container_width=True)
+        st.download_button(
+            "Download member matrix as CSV",
+            mm.rename(columns=lambda d: d.strftime("%Y-%m-%d")).to_csv(index_label="Member"),
+            file_name=f"wn2_members_{region_name.replace(' ', '_')}_{mm_mode.lower()}.csv",
+            mime="text/csv",
+            key=f"fc_member_csv_{region_name}",
+        )
+
+    with matrix_slot:
+        if region_members:
+            st.subheader("Daily precipitation matrix")
+            mcol1, mcol2 = st.columns(2)
+            matrix_metric = mcol1.radio(
+                "Cells show",
+                ["Chance of rain", "Median daily total"],
+                horizontal=True,
+                key="fc_matrix_metric",
+            )
+            threshold_in = mcol2.selectbox(
+                "Rain threshold (in/day)",
+                [0.01, 0.10, 0.25, 0.50, 1.00],
+                index=1,
+                disabled=(matrix_metric != "Chance of rain"),
+                key="fc_matrix_threshold",
+                help="A member counts as 'rain' when the region-wide average "
+                     "for the day is at or above this amount.",
+            )
+            use_chance = matrix_metric == "Chance of rain"
+            matrix = forecast.daily_matrix(
+                region_members,
+                metric="chance" if use_chance else "median",
+                threshold_in=threshold_in,
+            )
+            import plotly.graph_objects as go
+            day_labels = [d.strftime("%a %b %d") for d in matrix.columns]
+            fig_m = go.Figure(go.Heatmap(
+                z=matrix.values,
+                x=day_labels,
+                y=list(matrix.index),
+                colorscale="Blues",
+                zmin=0,
+                zmax=100 if use_chance else None,
+                text=matrix.round(0 if use_chance else 2).values,
+                texttemplate="%{text}%" if use_chance else "%{text}",
+                hovertemplate=(
+                    "%{y}<br>%{x}<br>"
+                    + ("Chance of ≥ " + f"{threshold_in:.2f}" + " in: %{z:.0f}%"
+                       if use_chance else "Median: %{z:.2f} in")
+                    + "<extra></extra>"
+                ),
+                colorbar={"title": "%" if use_chance else "in"},
+            ))
+            fig_m.update_layout(
+                height=max(260, 48 * len(matrix.index) + 120),
+                margin={"t": 20},
+                yaxis={"autorange": "reversed"},
+                xaxis={"side": "top"},
+            )
+            st.plotly_chart(fig_m, use_container_width=True)
+            st.caption(
+                "Each cell uses the 64 WeatherNext 2 members. Values describe the "
+                "region-wide average for the day, so a cell can read low even when "
+                "a single location in the region gets rain."
+            )
+            csv_name = "wn2_" + ("chance_ge_" + f"{threshold_in:.2f}in" if use_chance else "median_in") + ".csv"
+            st.download_button(
+                "Download matrix as CSV",
+                matrix.round(2).rename(columns=lambda d: d.strftime("%Y-%m-%d"))
+                      .to_csv(index_label="Region"),
+                file_name=csv_name,
+                mime="text/csv",
+            )
 
     st.caption(
         "Skill declines with lead time. Treat later days as a range of possibilities, "
