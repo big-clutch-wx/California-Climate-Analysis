@@ -2290,7 +2290,7 @@ elif analysis_mode == "Medium-Range Forecast":
         fig_mm = go.Figure()
         for tr in _plume_panel(members_only, "y", True):
             fig_mm.add_trace(tr)
-        for tr in _plume_panel(mean_row, "y2", False, font_size=14):
+        for tr in _plume_panel(mean_row, "y2", False, font_size=20):
             fig_mm.add_trace(tr)
         fig_mm.update_layout(
             height=max(520, 15 * n_members + 200),
