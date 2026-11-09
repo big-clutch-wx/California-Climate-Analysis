@@ -2153,6 +2153,7 @@ elif analysis_mode == "Medium-Range Forecast":
             f"Retrieved {fetched_at.strftime('%b %d, %Y %H:%M')} UTC"
         )
 
+        import numpy as np
         import plotly.graph_objects as go
         fig = go.Figure()
         # Each trace gets an explicit hover label, so none shows as "trace N".
@@ -2198,45 +2199,73 @@ elif analysis_mode == "Medium-Range Forecast":
             hide_index=True,
         )
 
-        # Member-by-day matrix: x = day, y = ensemble member, Mean row at the bottom.
+        # Member-by-day plume matrix: x = day, y = member, MEAN panel at the bottom.
         st.markdown("**Member matrix**")
         mm_mode = st.radio(
             "Matrix values",
-            ["Daily", "Cumulative"],
+            ["Cumulative", "Daily"],
             horizontal=True,
             key=f"fc_member_mode_{region_name}",
         )
         mm = forecast.member_matrix(per_member, cumulative=(mm_mode == "Cumulative"))
-        members_only = mm.iloc[:-1]
-        zmax = float(max(members_only.to_numpy().max(), 0.01))
+        members_only = mm.iloc[:-1].copy()
+        members_only.index = ["CONT" if i == "Control" else i for i in members_only.index]
+        mean_row = mm.loc[["Mean"]]
         mm_days = [d.strftime("%a %b %d") for d in mm.columns]
         n_members = len(members_only)
+        nb = len(forecast.PLUME_COLORS)
+
+        def _plume_panel(frame, yaxis_id, show_scale):
+            vals = frame.values
+            bins = forecast.plume_bin(vals)
+            light = forecast.plume_text_is_light(bins)
+            txt = np.where(vals >= 0.01, np.vectorize(lambda v: f"{v:.2f}".rstrip("0").rstrip(".") if v < 10 else f"{v:.1f}")(vals), "")
+            dark_txt = np.where(light, "", txt)
+            light_txt = np.where(light, txt, "")
+            heat = go.Heatmap(
+                z=bins, x=mm_days, y=list(frame.index),
+                colorscale=forecast.plume_colorscale(), zmin=-0.5, zmax=nb - 0.5,
+                xgap=1, ygap=1, yaxis=yaxis_id,
+                customdata=vals, text=dark_txt, texttemplate="%{text}",
+                textfont={"size": 9, "color": "black"},
+                hovertemplate="%{y}<br>%{x}<br>%{customdata:.2f} in<extra></extra>",
+                showscale=show_scale,
+                colorbar=dict(
+                    tickvals=[i - 0.5 for i in range(1, nb)],
+                    ticktext=[("%g" % e) for e in forecast.PLUME_EDGES],
+                    tickfont={"size": 8}, len=0.9, y=0.55, thickness=12, title="in",
+                ) if show_scale else None,
+            )
+            xs, ys = np.meshgrid(mm_days, list(frame.index))
+            over = go.Scatter(
+                x=xs.ravel(), y=ys.ravel(), mode="text", text=light_txt.ravel(),
+                textfont={"size": 9, "color": "white"}, hoverinfo="skip",
+                showlegend=False, xaxis="x", yaxis=yaxis_id,
+            )
+            return heat, over
 
         fig_mm = go.Figure()
-        fig_mm.add_trace(go.Heatmap(
-            z=members_only.values, x=mm_days, y=list(members_only.index),
-            colorscale="Blues", zmin=0, zmax=zmax, xgap=1, ygap=1,
-            colorbar={"title": "in"}, yaxis="y",
-            hovertemplate="%{y}<br>%{x}<br>%{z:.2f} in<extra></extra>",
-        ))
-        fig_mm.add_trace(go.Heatmap(
-            z=mm.loc[["Mean"]].values, x=mm_days, y=["Mean"],
-            colorscale="Blues", zmin=0, zmax=zmax, xgap=1, ygap=1,
-            showscale=False, yaxis="y2",
-            text=mm.loc[["Mean"]].values, texttemplate="%{text:.2f}",
-            hovertemplate="Mean<br>%{x}<br>%{z:.2f} in<extra></extra>",
-        ))
+        for tr in _plume_panel(members_only, "y", True):
+            fig_mm.add_trace(tr)
+        for tr in _plume_panel(mean_row, "y2", False):
+            fig_mm.add_trace(tr)
         fig_mm.update_layout(
-            height=max(420, 11 * n_members + 160),
-            margin={"t": 30},
+            height=max(520, 15 * n_members + 200),
+            margin={"t": 30, "r": 10},
+            plot_bgcolor="white",
             xaxis={"side": "top", "type": "category"},
-            yaxis={"domain": [0.08, 1.0], "autorange": "reversed", "type": "category",
-                   "tickfont": {"size": 9},
-                   "tickmode": "array", "tickvals": list(members_only.index),
-                   "ticktext": list(members_only.index)},
-            yaxis2={"domain": [0.0, 0.06], "type": "category", "anchor": "x"},
+            yaxis={"domain": [0.09, 1.0], "autorange": "reversed", "type": "category",
+                   "tickfont": {"size": 9}, "tickmode": "array",
+                   "tickvals": list(members_only.index), "ticktext": list(members_only.index)},
+            yaxis2={"domain": [0.0, 0.065], "type": "category", "anchor": "x",
+                    "tickmode": "array", "tickvals": ["Mean"], "ticktext": ["MEAN"]},
         )
         st.plotly_chart(fig_mm, use_container_width=True)
+        st.caption(
+            ("Cumulative" if mm_mode == "Cumulative" else "Daily")
+            + " region-average precipitation in inches for each of the 64 members "
+            "(CONT is the control run). The MEAN row averages the members."
+        )
         st.download_button(
             "Download member matrix as CSV",
             mm.rename(columns=lambda d: d.strftime("%Y-%m-%d")).to_csv(index_label="Member"),

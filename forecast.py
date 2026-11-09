@@ -193,3 +193,48 @@ def member_matrix(per_member, cumulative=False):
     wide.index = [label(m) for m in wide.index]
     wide.loc["Mean"] = wide.mean(axis=0)
     return wide.round(2)
+
+
+# Plume-matrix color bands (inches), modeled on the weathermodels.com EPS plume.
+PLUME_EDGES = [0.01, 0.02, 0.05, 0.08, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5,
+               0.6, 0.7, 0.8, 0.9, 1, 1.2, 1.4, 1.6, 1.8, 2, 2.5, 3, 3.5, 4,
+               4.5, 5, 5.5, 6, 7, 8, 9, 10, 12, 14, 16, 20, 24, 30]
+PLUME_COLORS = (
+    ["#ffffff"]
+    + ["#e6e6e6", "#cfcfcf", "#b0b0b0", "#8c8c8c"]
+    + ["#9be39b", "#66cc66", "#33b533", "#1fa01f", "#0d8a0d", "#0a6e0a"]
+    + ["#bfe3ff", "#90cdf5", "#62b4ec", "#3b9ae0", "#2480d0"]
+    + ["#ffffb3", "#fff58a", "#ffeb5c", "#ffdd33", "#ffc800"]
+    + ["#ffa500", "#ff8000", "#ff5a00", "#f03000", "#d81800"]
+    + ["#b00000", "#8b0000", "#6e0020"]
+    + ["#800080", "#9a30b0", "#b060c8", "#c890e0"]
+    + ["#f0b8f8", "#f5a0f0", "#f888e0", "#fa70d0", "#fc58c0", "#fe40b0"]
+    + ["#ff20a0"]
+)
+assert len(PLUME_COLORS) == len(PLUME_EDGES) + 1
+
+
+def plume_bin(values):
+    """Index of the color band for each value (0 means under 0.01 in)."""
+    import numpy as np
+    return np.searchsorted(PLUME_EDGES, np.asarray(values, dtype=float), side="right")
+
+
+def plume_colorscale():
+    """Step colorscale for bin indices 0..len(PLUME_COLORS)-1 (use zmin=-0.5, zmax=n-0.5)."""
+    n = len(PLUME_COLORS)
+    scale = []
+    for i, c in enumerate(PLUME_COLORS):
+        scale.append([i / n, c])
+        scale.append([(i + 1) / n, c])
+    return scale
+
+
+def plume_text_is_light(bins):
+    """True where the band is dark enough that white text reads better."""
+    import numpy as np
+    dark = np.array([
+        (0.299 * int(c[1:3], 16) + 0.587 * int(c[3:5], 16) + 0.114 * int(c[5:7], 16)) < 140
+        for c in PLUME_COLORS
+    ])
+    return dark[np.asarray(bins, dtype=int)]
