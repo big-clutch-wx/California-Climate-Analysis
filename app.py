@@ -2115,25 +2115,6 @@ elif analysis_mode == "Medium-Range Forecast":
     # until the WeatherNext data arrives. Remove this set to re-enable it.
     FORECAST_PAUSED_REGIONS = {"California"}
 
-    # Controls for the daily precipitation matrix drawn under each region's chart.
-    mcol1, mcol2 = st.columns(2)
-    matrix_metric = mcol1.radio(
-        "Daily matrix shows",
-        ["Chance of rain", "Median daily total"],
-        horizontal=True,
-        key="fc_matrix_metric",
-    )
-    threshold_in = mcol2.selectbox(
-        "Rain threshold (in/day)",
-        [0.01, 0.10, 0.25, 0.50, 1.00],
-        index=1,
-        disabled=(matrix_metric != "Chance of rain"),
-        key="fc_matrix_threshold",
-        help="A member counts as 'rain' when the region-wide average "
-             "for the day is at or above this amount.",
-    )
-    use_chance = matrix_metric == "Chance of rain"
-
     for region_name in selected_regions:
         if region_name in FORECAST_PAUSED_REGIONS:
             st.info(f"{region_name} forecast is paused until the WeatherNext data is available.")
@@ -2214,6 +2195,23 @@ elif analysis_mode == "Medium-Range Forecast":
 
         # Daily precipitation matrix for this region (chance of rain or median).
         st.markdown("**Daily precipitation matrix**")
+        mcol1, mcol2 = st.columns(2)
+        matrix_metric = mcol1.radio(
+            "Daily matrix shows",
+            ["Chance of rain", "Median daily total"],
+            horizontal=True,
+            key=f"fc_matrix_metric_{region_name}",
+        )
+        threshold_in = mcol2.selectbox(
+            "Rain threshold (in/day)",
+            [0.01, 0.10, 0.25, 0.50, 1.00],
+            index=1,
+            disabled=(matrix_metric != "Chance of rain"),
+            key=f"fc_matrix_threshold_{region_name}",
+            help="A member counts as 'rain' when the region-wide average "
+                 "for the day is at or above this amount.",
+        )
+        use_chance = matrix_metric == "Chance of rain"
         matrix = forecast.daily_matrix(
             {region_name: per_member},
             metric="chance" if use_chance else "median",
