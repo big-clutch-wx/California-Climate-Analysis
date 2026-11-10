@@ -310,6 +310,8 @@ def fetch_point_blend(lat, lon, forecast_days=15):
             daily = member_region_means(raw, max_days=forecast_days)
             if daily.empty:
                 raise ValueError("no complete forecast days returned")
+            # Last hour with data (local time), for the coverage readout in the app.
+            daily.attrs["data_end"] = raw.dropna(subset=["precip_mm"])["time"].max()
             per_model[name] = daily
         except Exception as exc:  # noqa: BLE001 - shown to the user per model
             errors[name] = str(exc)

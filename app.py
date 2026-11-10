@@ -2371,7 +2371,10 @@ elif analysis_mode == "Medium-Range Forecast":
         # days that every model has, so the shortest model sets its length.
         model_last_day = {n: df["date"].max() for n, df in per_model.items()}
         coverage_text = ", ".join(
-            f"{n} to {d.strftime('%b %d')}" for n, d in model_last_day.items()
+            f"{n} to {d.strftime('%b %d')}"
+            + (f" (data ends {df.attrs['data_end'].strftime('%b %d %H:%M')} PT)"
+               if df.attrs.get("data_end") is not None else "")
+            for (n, d), df in zip(model_last_day.items(), per_model.values())
         )
 
         st.subheader(point_name)
