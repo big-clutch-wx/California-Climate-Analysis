@@ -510,7 +510,7 @@ def _plume_traces(frame, days, yaxis_id, show_scale, cell_font, colorbar_font):
         colorbar=dict(
             tickvals=[i - 0.5 for i in range(1, nb)],
             ticktext=[("%g" % e) for e in PLUME_EDGES],
-            tickfont={"size": colorbar_font}, len=0.9, y=0.55, thickness=12, title="in",
+            tickfont={"size": colorbar_font}, len=0.9, y=0.55, thickness=24, title="in",
         ) if show_scale else None,
     )
     xs, ys = np.meshgrid(days, list(frame.index))
