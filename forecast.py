@@ -391,30 +391,37 @@ def blend_daily_matrix(blend, metric="chance", threshold_in=0.10):
 
 
 def blend_member_matrix(blend, cumulative=False):
-    """(members, means) frames for the plume matrix.
+    """(blend_mean, by_model) for the plume matrices.
 
-    members: one row per member, labeled like 'WN2 M07' or 'EPS CONT'.
-    means: rows BLEND (equal-weight average of the model means) and one per model.
+    blend_mean: one-row DataFrame labeled BLEND, the equal-weight average of the
+        model means (computed before rounding).
+    by_model: {model: (members, mean_row)}. members has one row per member
+        (CONT, M01, ...); mean_row has one row labeled MEAN.
     """
-    member_frames, model_means = [], {}
+    by_model, model_means = {}, {}
     for name in blend["model"].unique():
         sub = blend[blend["model"] == name][["member", "date", "region_precip_mm"]]
         mm = member_matrix(sub, cumulative=cumulative)
-        model_means[name] = mm.loc["Mean"]
         body = mm.iloc[:-1].copy()
-        body.index = [f"{name} {'CONT' if i == 'Control' else i}" for i in body.index]
-        member_frames.append(body)
-    means = pd.DataFrame(model_means).T
-    means.loc["BLEND"] = means.mean(axis=0)
-    means = means.loc[["BLEND"] + list(model_means)].round(2)
-    return pd.concat(member_frames), means
+        body.index = ["CONT" if i == "Control" else i for i in body.index]
+        by_model[name] = (body, mm.loc[["Mean"]].rename(index={"Mean": "MEAN"}))
+
+        inches = sub.assign(inches=sub["region_precip_mm"] / MM_PER_INCH)
+        wide = inches.pivot(index="member", columns="date", values="inches").sort_index(axis=1)
+        if cumulative:
+            wide = wide.cumsum(axis=1)
+        model_means[name] = wide.mean(axis=0)
+    blend_mean = pd.DataFrame(model_means).T.mean(axis=0).round(2).to_frame("BLEND").T
+    return blend_mean, by_model
 
 
 # ---------------------------------------------------------------------------
 # Figures
 # ---------------------------------------------------------------------------
+# Text sizes are arguments with defaults. The app passes its own values from the
+# TEXT SIZES block in app.py, so change them there.
 
-def fig_cumulative(summary, mean_label="Mean"):
+def fig_cumulative(summary, mean_label="Mean", font_size=12):
     """Cumulative line chart: 10th-90th band, median and mean."""
     import plotly.graph_objects as go
     fig = go.Figure()
@@ -446,11 +453,12 @@ def fig_cumulative(summary, mean_label="Mean"):
         hovermode="x unified",
         height=420,
         margin={"t": 30},
+        font={"size": font_size},
     )
     return fig
 
 
-def fig_daily_matrix(matrix, use_chance, threshold_in):
+def fig_daily_matrix(matrix, use_chance, threshold_in, font_size=12):
     """Heatmap of chance of rain (percent) or median daily total (inches)."""
     import plotly.graph_objects as go
     day_labels = [d.strftime("%a %b %d") for d in matrix.columns]
@@ -459,6 +467,7 @@ def fig_daily_matrix(matrix, use_chance, threshold_in):
         colorscale="Blues", zmin=0, zmax=100 if use_chance else None,
         text=matrix.round(0 if use_chance else 2).values,
         texttemplate="%{text}%" if use_chance else "%{text}",
+        textfont={"size": font_size},
         hovertemplate=(
             "%{y}<br>%{x}<br>"
             + ("Chance of ≥ " + f"{threshold_in:.2f}" + " in: %{z:.0f}%"
@@ -471,58 +480,66 @@ def fig_daily_matrix(matrix, use_chance, threshold_in):
         height=max(190, 46 * len(matrix.index) + 90),
         margin={"t": 10, "b": 10},
         xaxis={"side": "top"}, yaxis={"autorange": "reversed"},
+        font={"size": font_size},
     )
     return fig
 
 
-def fig_member_plume(members, means, member_font=9, mean_font=14):
-    """Plume matrix: one row per member, a separate mean panel at the bottom.
+def _plume_fmt(v):
+    if v < 0.01:
+        return ""
+    return f"{v:.2f}".rstrip("0").rstrip(".") if v < 10 else f"{v:.1f}"
 
-    members, means: DataFrames of inches with date columns; the row labels are
-    used as shown. Cells print their value; colors follow PLUME_EDGES.
+
+def _plume_traces(frame, days, yaxis_id, show_scale, cell_font, colorbar_font):
+    """Heatmap plus a white-text overlay for dark cells, for one panel."""
+    import plotly.graph_objects as go
+    nb = len(PLUME_COLORS)
+    vals = frame.values
+    bins = plume_bin(vals)
+    light = plume_text_is_light(bins)
+    txt = np.vectorize(_plume_fmt)(vals).astype(object)
+    heat = go.Heatmap(
+        z=bins, x=days, y=list(frame.index),
+        colorscale=plume_colorscale(), zmin=-0.5, zmax=nb - 0.5,
+        xgap=1, ygap=1, yaxis=yaxis_id,
+        customdata=vals, text=np.where(light, "", txt), texttemplate="%{text}",
+        textfont={"size": cell_font, "color": "black"},
+        hovertemplate="%{y}<br>%{x}<br>%{customdata:.2f} in<extra></extra>",
+        showscale=show_scale,
+        colorbar=dict(
+            tickvals=[i - 0.5 for i in range(1, nb)],
+            ticktext=[("%g" % e) for e in PLUME_EDGES],
+            tickfont={"size": colorbar_font}, len=0.9, y=0.55, thickness=12, title="in",
+        ) if show_scale else None,
+    )
+    xs, ys = np.meshgrid(days, list(frame.index))
+    over = go.Scatter(
+        x=xs.ravel(), y=ys.ravel(), mode="text", text=np.where(light, txt, "").ravel(),
+        textfont={"size": cell_font, "color": "white"}, hoverinfo="skip",
+        showlegend=False, xaxis="x", yaxis=yaxis_id,
+    )
+    return heat, over
+
+
+# Same left and right margins on every plume figure, so the date columns line up
+# from one figure to the next.
+_PLUME_MARGIN = {"l": 90, "r": 90}
+
+
+def fig_member_plume(members, means, member_font=9, mean_font=14, label_font=9,
+                     date_font=12, colorbar_font=8, show_scale=True):
+    """Plume matrix: one row per member and a mean panel underneath.
+
+    members, means: DataFrames of inches with date columns; row labels are
+    shown as given. Cells print their value; colors follow PLUME_EDGES.
     """
     import plotly.graph_objects as go
     days = [d.strftime("%a %b %d") for d in members.columns]
-    nb = len(PLUME_COLORS)
-
-    def fmt(v):
-        if v < 0.01:
-            return ""
-        return f"{v:.2f}".rstrip("0").rstrip(".") if v < 10 else f"{v:.1f}"
-
-    def panel(frame, yaxis_id, show_scale, font_size):
-        vals = frame.values
-        bins = plume_bin(vals)
-        light = plume_text_is_light(bins)
-        txt = np.vectorize(fmt)(vals).astype(object)
-        dark_txt = np.where(light, "", txt)
-        light_txt = np.where(light, txt, "")
-        heat = go.Heatmap(
-            z=bins, x=days, y=list(frame.index),
-            colorscale=plume_colorscale(), zmin=-0.5, zmax=nb - 0.5,
-            xgap=1, ygap=1, yaxis=yaxis_id,
-            customdata=vals, text=dark_txt, texttemplate="%{text}",
-            textfont={"size": font_size, "color": "black"},
-            hovertemplate="%{y}<br>%{x}<br>%{customdata:.2f} in<extra></extra>",
-            showscale=show_scale,
-            colorbar=dict(
-                tickvals=[i - 0.5 for i in range(1, nb)],
-                ticktext=[("%g" % e) for e in PLUME_EDGES],
-                tickfont={"size": 8}, len=0.9, y=0.55, thickness=12, title="in",
-            ) if show_scale else None,
-        )
-        xs, ys = np.meshgrid(days, list(frame.index))
-        over = go.Scatter(
-            x=xs.ravel(), y=ys.ravel(), mode="text", text=light_txt.ravel(),
-            textfont={"size": font_size, "color": "white"}, hoverinfo="skip",
-            showlegend=False, xaxis="x", yaxis=yaxis_id,
-        )
-        return heat, over
-
     fig = go.Figure()
-    for tr in panel(members, "y", True, member_font):
+    for tr in _plume_traces(members, days, "y", show_scale, member_font, colorbar_font):
         fig.add_trace(tr)
-    for tr in panel(means, "y2", False, mean_font):
+    for tr in _plume_traces(means, days, "y2", False, mean_font, colorbar_font):
         fig.add_trace(tr)
 
     main_px = 15 * len(members)
@@ -531,15 +548,37 @@ def fig_member_plume(members, means, member_font=9, mean_font=14):
     plot_h = main_px + gap_px + mean_px
     fig.update_layout(
         height=plot_h + top_px + bottom_px,
-        margin={"t": top_px, "b": bottom_px, "r": 10},
+        margin={"t": top_px, "b": bottom_px, **_PLUME_MARGIN},
         plot_bgcolor="white",
-        xaxis={"side": "top", "type": "category"},
+        xaxis={"side": "top", "type": "category", "tickfont": {"size": date_font}},
         yaxis={"domain": [(mean_px + gap_px) / plot_h, 1.0], "autorange": "reversed",
-               "type": "category", "tickfont": {"size": member_font},
+               "type": "category", "tickfont": {"size": label_font},
                "tickmode": "array", "tickvals": list(members.index),
                "ticktext": list(members.index)},
         yaxis2={"domain": [0.0, mean_px / plot_h], "autorange": "reversed",
                 "type": "category", "anchor": "x", "tickmode": "array",
+                "tickfont": {"size": label_font},
                 "tickvals": list(means.index), "ticktext": list(means.index)},
+    )
+    return fig
+
+
+def fig_mean_strip(means, mean_font=14, label_font=9, date_font=12, colorbar_font=8):
+    """A mean-only plume strip (for the blend mean above the member matrices)."""
+    import plotly.graph_objects as go
+    days = [d.strftime("%a %b %d") for d in means.columns]
+    fig = go.Figure()
+    for tr in _plume_traces(means, days, "y", False, mean_font, colorbar_font):
+        fig.add_trace(tr)
+    row_px = 56
+    top_px, bottom_px = 40, 10
+    fig.update_layout(
+        height=row_px * len(means) + top_px + bottom_px,
+        margin={"t": top_px, "b": bottom_px, **_PLUME_MARGIN},
+        plot_bgcolor="white",
+        xaxis={"side": "top", "type": "category", "tickfont": {"size": date_font}},
+        yaxis={"autorange": "reversed", "type": "category", "tickmode": "array",
+               "tickfont": {"size": label_font},
+               "tickvals": list(means.index), "ticktext": list(means.index)},
     )
     return fig

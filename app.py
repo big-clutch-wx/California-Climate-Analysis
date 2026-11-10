@@ -722,11 +722,27 @@ selected_regions = st.sidebar.multiselect(
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Analysis Mode")
 
-analysis_mode = st.sidebar.radio(
+mode_choice = st.sidebar.radio(
     "Mode:",
-    ["Comparison Mode", "Extremes / Records", "Medium-Range Forecast"],
+    [
+        "Comparison Mode",
+        "Extremes / Records",
+        "Regional Forecast (WN2)",
+        "Single-Point Forecast (Model Blend)",
+    ],
     index=0,
 )
+
+# The two forecast choices share one code path below; forecast_mode tells it which.
+if mode_choice == "Regional Forecast (WN2)":
+    analysis_mode = "Medium-Range Forecast"
+    forecast_mode = "Regional (WN2)"
+elif mode_choice == "Single-Point Forecast (Model Blend)":
+    analysis_mode = "Medium-Range Forecast"
+    forecast_mode = "Single-Point (Model Blend)"
+else:
+    analysis_mode = mode_choice
+    forecast_mode = None
 
 if analysis_mode == "Comparison Mode":
     comparison_mode = st.sidebar.radio(
@@ -740,17 +756,6 @@ if analysis_mode == "Comparison Mode":
     )
 else:
     comparison_mode = None
-
-if analysis_mode == "Medium-Range Forecast":
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### Forecast Mode")
-    forecast_mode = st.sidebar.radio(
-        "Forecast type:",
-        ["Regional (WN2)", "Single-Point (Model Blend)"],
-        index=0,
-    )
-else:
-    forecast_mode = None
 
 st.sidebar.markdown("---")
 
@@ -2098,6 +2103,34 @@ elif analysis_mode == "Medium-Range Forecast":
         + pd.Timestamp.now(tz="America/Los_Angeles").strftime("%Y-%m-%d")
     )
 
+    # ======================================================================
+    # TEXT SIZES for the forecast charts. Edit these numbers (points).
+    # ======================================================================
+    FONT_MEMBER_CELLS = 9       # numbers inside the member matrix cells
+    FONT_MEMBER_LABELS = 9      # row labels: CONT, M01, M02, ...
+    FONT_MEAN_CELLS = 14        # numbers inside the MEAN / BLEND boxes
+    FONT_DATE_LABELS = 12       # date labels across the top of the member matrices
+    FONT_COLORBAR = 8           # numbers on the color bar beside the member matrix
+    FONT_DAILY_MATRIX = 12      # text in the daily precipitation matrix
+    FONT_CUMULATIVE_CHART = 12  # text on the cumulative line chart
+    # ======================================================================
+
+    def member_plume_fig(members, means):
+        return forecast.fig_member_plume(
+            members, means,
+            member_font=FONT_MEMBER_CELLS, mean_font=FONT_MEAN_CELLS,
+            label_font=FONT_MEMBER_LABELS, date_font=FONT_DATE_LABELS,
+            colorbar_font=FONT_COLORBAR,
+        )
+
+    def cumulative_fig(summary, mean_label="Mean"):
+        return forecast.fig_cumulative(summary, mean_label=mean_label,
+                                       font_size=FONT_CUMULATIVE_CHART)
+
+    def daily_matrix_fig(matrix, use_chance, threshold_in):
+        return forecast.fig_daily_matrix(matrix, use_chance, threshold_in,
+                                         font_size=FONT_DAILY_MATRIX)
+
     def show_forecast_table(summary):
         table = summary.copy()
         table["date"] = table["date"].dt.strftime("%a %b %d")
@@ -2187,7 +2220,7 @@ elif analysis_mode == "Medium-Range Forecast":
                 f"Retrieved {fetched_at.strftime('%b %d, %Y %H:%M')} UTC"
             )
 
-            st.plotly_chart(forecast.fig_cumulative(summary), use_container_width=True)
+            st.plotly_chart(cumulative_fig(summary), use_container_width=True)
             show_forecast_table(summary)
 
             # Daily precipitation matrix for this region (chance of rain or median).
@@ -2199,7 +2232,7 @@ elif analysis_mode == "Medium-Range Forecast":
                 threshold_in=threshold_in,
             )
             st.plotly_chart(
-                forecast.fig_daily_matrix(matrix, use_chance, threshold_in),
+                daily_matrix_fig(matrix, use_chance, threshold_in),
                 use_container_width=True,
             )
             st.caption(
@@ -2220,10 +2253,8 @@ elif analysis_mode == "Medium-Range Forecast":
             members_only = mm.iloc[:-1].copy()
             members_only.index = ["CONT" if i == "Control" else i for i in members_only.index]
             mean_row = mm.loc[["Mean"]].rename(index={"Mean": "MEAN"})
-            st.plotly_chart(
-                forecast.fig_member_plume(members_only, mean_row),
-                use_container_width=True,
-            )
+            st.plotly_chart(member_plume_fig(members_only, mean_row),
+                            use_container_width=True)
             st.caption(
                 mm_mode
                 + " region-average precipitation in inches for each of the 64 members "
@@ -2318,10 +2349,8 @@ elif analysis_mode == "Medium-Range Forecast":
             f"Retrieved {fetched_at.strftime('%b %d, %Y %H:%M')} UTC"
         )
 
-        st.plotly_chart(
-            forecast.fig_cumulative(summary, mean_label="Blend mean"),
-            use_container_width=True,
-        )
+        st.plotly_chart(cumulative_fig(summary, mean_label="Blend mean"),
+                        use_container_width=True)
         show_forecast_table(summary)
 
         st.markdown("**Daily precipitation matrix**")
@@ -2330,11 +2359,9 @@ elif analysis_mode == "Medium-Range Forecast":
             blend,
             metric="chance" if use_chance else "median",
             threshold_in=threshold_in,
-        )
-        st.plotly_chart(
-            forecast.fig_daily_matrix(matrix, use_chance, threshold_in),
-            use_container_width=True,
-        )
+        ).loc[["Blend"]]
+        st.plotly_chart(daily_matrix_fig(matrix, use_chance, threshold_in),
+                        use_container_width=True)
         st.caption(
             "Blend weights each model equally. Each model is read at its nearest "
             "0.25° grid cell, so a point in the mountains reflects the cell average "
@@ -2348,19 +2375,33 @@ elif analysis_mode == "Medium-Range Forecast":
             horizontal=True,
             key="fc_member_mode_point",
         )
-        members_df, means_df = forecast.blend_member_matrix(
+        blend_mean, by_model = forecast.blend_member_matrix(
             blend, cumulative=(mm_mode == "Cumulative")
         )
+
+        st.markdown("**Blend mean**")
         st.plotly_chart(
-            forecast.fig_member_plume(members_df, means_df),
+            forecast.fig_mean_strip(
+                blend_mean, mean_font=FONT_MEAN_CELLS, label_font=FONT_MEMBER_LABELS,
+                date_font=FONT_DATE_LABELS, colorbar_font=FONT_COLORBAR,
+            ),
             use_container_width=True,
         )
+        for model_name, (m_members, m_mean) in by_model.items():
+            st.markdown(f"**{model_name}** ({len(m_members)} members)")
+            st.plotly_chart(member_plume_fig(m_members, m_mean), use_container_width=True)
+
         st.caption(
             mm_mode + " precipitation in inches for every member of each model "
-            "(CONT is each model's control run). BLEND in the bottom panel is the "
-            "equal-weight average of the three model means."
+            "(CONT is each model's control run). MEAN under each matrix is that "
+            "model's own mean; the Blend mean at the top is the equal-weight "
+            "average of the three model means."
         )
-        csv_df = pd.concat([members_df, means_df])
+        csv_frames = [blend_mean.rename(index={"BLEND": "BLEND MEAN"})]
+        for model_name, (m_members, m_mean) in by_model.items():
+            csv_frames.append(m_members.rename(index=lambda i, n=model_name: f"{n} {i}"))
+            csv_frames.append(m_mean.rename(index=lambda i, n=model_name: f"{n} {i}"))
+        csv_df = pd.concat(csv_frames)
         st.download_button(
             "Download member matrix as CSV",
             csv_df.rename(columns=lambda d: d.strftime("%Y-%m-%d")).to_csv(index_label="Member"),
