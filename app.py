@@ -2367,13 +2367,30 @@ elif analysis_mode == "Medium-Range Forecast":
             f"{n} ({df['member'].nunique()} members)" for n, df in per_model.items()
         )
 
+        # Last complete Pacific-time day each model returned. The blend only keeps
+        # days that every model has, so the shortest model sets its length.
+        model_last_day = {n: df["date"].max() for n, df in per_model.items()}
+        coverage_text = ", ".join(
+            f"{n} to {d.strftime('%b %d')}" for n, d in model_last_day.items()
+        )
+
         st.subheader(point_name)
         st.caption(
             f"Source: Open-Meteo · {member_counts} · "
             f"Forecast covers {blend['date'].min().strftime('%b %d, %Y')} to "
-            f"{blend['date'].max().strftime('%b %d, %Y')} · "
+            f"{blend['date'].max().strftime('%b %d, %Y')} "
+            f"({blend['date'].nunique()} days) · "
+            f"Complete days available: {coverage_text} · "
             f"Retrieved {fetched_at.strftime('%b %d, %Y %H:%M')} UTC"
         )
+        if blend["date"].max() < max(model_last_day.values()):
+            limiting = [n for n, d in model_last_day.items() if d == blend["date"].max()]
+            st.info(
+                f"The blend ends {blend['date'].max().strftime('%b %d')} because "
+                f"{', '.join(limiting)} has no complete Pacific-time day after that "
+                "yet. It should reach the next day when that model's next run is "
+                "published."
+            )
 
         st.plotly_chart(cumulative_fig(summary, mean_label="Blend mean"),
                         use_container_width=True)
