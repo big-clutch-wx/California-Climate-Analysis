@@ -510,7 +510,7 @@ def _plume_traces(frame, days, yaxis_id, show_scale, cell_font, colorbar_font):
         colorbar=dict(
             tickvals=[i - 0.5 for i in range(1, nb)],
             ticktext=[("%g" % e) for e in PLUME_EDGES],
-            tickfont={"size": colorbar_font}, len=0.9, y=0.55, thickness=24, title="in",
+            tickfont={"size": colorbar_font}, len=0.9, y=0.55, thickness=12, title="in",
         ) if show_scale else None,
     )
     xs, ys = np.meshgrid(days, list(frame.index))
@@ -527,8 +527,8 @@ def _plume_traces(frame, days, yaxis_id, show_scale, cell_font, colorbar_font):
 _PLUME_MARGIN = {"l": 90, "r": 90}
 
 
-def fig_member_plume(members, means, member_font=9, mean_font=28, label_font=9,
-                     date_font=14, colorbar_font=16, show_scale=True):
+def fig_member_plume(members, means, member_font=9, mean_font=14, label_font=9,
+                     date_font=12, colorbar_font=8, show_scale=True):
     """Plume matrix: one row per member and a mean panel underneath.
 
     members, means: DataFrames of inches with date columns; row labels are
@@ -563,7 +563,7 @@ def fig_member_plume(members, means, member_font=9, mean_font=28, label_font=9,
     return fig
 
 
-def fig_mean_strip(means, mean_font=28, label_font=9, date_font=14, colorbar_font=16):
+def fig_mean_strip(means, mean_font=14, label_font=9, date_font=12, colorbar_font=8):
     """A mean-only plume strip (for the blend mean above the member matrices)."""
     import plotly.graph_objects as go
     days = [d.strftime("%a %b %d") for d in means.columns]
