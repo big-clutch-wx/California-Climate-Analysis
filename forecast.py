@@ -10,6 +10,7 @@ each local day gives a complete window.
 This module does not import compare.py. The app passes in the region polygon
 and point-in-polygon function it already loaded, so boundaries are defined once.
 """
+import re
 import time
 
 import numpy as np
@@ -238,3 +239,307 @@ def plume_text_is_light(bins):
         for c in PLUME_COLORS
     ])
     return dark[np.asarray(bins, dtype=int)]
+
+
+# ---------------------------------------------------------------------------
+# Single-point model blend: WeatherNext 2 + ECMWF EPS + AIFS-ENS
+# ---------------------------------------------------------------------------
+# The single-run AIFS is left out on purpose: one deterministic run has no
+# spread to add to the ensemble percentiles.
+BLEND_MODELS = [
+    ("WN2", "google_weathernext2_ensemble"),
+    ("EPS", "ecmwf_ifs025_ensemble"),
+    ("AIFS-ENS", "ecmwf_aifs025_ensemble"),
+]
+
+
+def fetch_point_members(lat, lon, model_id, forecast_days=16,
+                        timezone="America/Los_Angeles"):
+    """Hourly member precipitation (mm) for one model at one point.
+
+    Returns columns member, time, grid_index, precip_mm in the same shape as
+    fetch_daily_precip, so member_region_means works on it unchanged. The plain
+    'precipitation' field is the control run and 'precipitation_memberNN' are
+    the perturbed members. A trailing '_<model id>' suffix is tolerated in case
+    the API adds one.
+    """
+    payload = _get_with_retry({
+        "latitude": lat,
+        "longitude": lon,
+        "hourly": "precipitation",
+        "models": model_id,
+        "forecast_days": forecast_days,
+        "timezone": timezone,
+    })
+    loc = payload[0] if isinstance(payload, list) else payload
+    hourly = loc["hourly"]
+    times = pd.to_datetime(hourly["time"])
+    pattern = re.compile(r"^precipitation(?:_member(\d+))?(?:_" + re.escape(model_id) + r")?$")
+    columns = {}
+    for key, values in hourly.items():
+        match = pattern.match(key)
+        if key == "time" or not match:
+            continue
+        if match.group(1) is None:
+            name = "precipitation_control"
+        else:
+            name = f"precipitation_member{int(match.group(1)):02d}"
+        columns[name] = values
+    if not columns:
+        raise ValueError(f"No member precipitation fields returned for {model_id}.")
+    wide = pd.DataFrame(columns, index=times)
+    long = wide.reset_index(names="time").melt(
+        id_vars="time", var_name="member", value_name="precip_mm"
+    )
+    long["grid_index"] = 0
+    return long[["member", "time", "grid_index", "precip_mm"]]
+
+
+def fetch_point_blend(lat, lon, forecast_days=15):
+    """Daily member totals for every blend model. Returns (per_model, errors).
+
+    A model that fails is reported in errors and left out, so one outage does
+    not blank the whole page.
+    """
+    per_model, errors = {}, {}
+    for i, (name, model_id) in enumerate(BLEND_MODELS):
+        if i:
+            time.sleep(1.0)
+        try:
+            raw = fetch_point_members(lat, lon, model_id, forecast_days=forecast_days + 1)
+            daily = member_region_means(raw, max_days=forecast_days)
+            if daily.empty:
+                raise ValueError("no complete forecast days returned")
+            per_model[name] = daily
+        except Exception as exc:  # noqa: BLE001 - shown to the user per model
+            errors[name] = str(exc)
+    return per_model, errors
+
+
+def blend_members(per_model):
+    """Stack the models into one long frame with equal weight per model.
+
+    Columns: model, member, date, region_precip_mm, weight. Only dates present
+    in every model are kept. Each model's weights sum to 1/n_models, so a model
+    with more members does not outvote one with fewer.
+    """
+    common = None
+    for df in per_model.values():
+        dates = set(df["date"].unique())
+        common = dates if common is None else common & dates
+    n_models = len(per_model)
+    parts = []
+    for name, df in per_model.items():
+        sub = df[df["date"].isin(common)].copy()
+        sub["model"] = name
+        sub["weight"] = 1.0 / (n_models * sub["member"].nunique())
+        parts.append(sub[["model", "member", "date", "region_precip_mm", "weight"]])
+    return pd.concat(parts, ignore_index=True)
+
+
+def _wquantile(values, weights, qs):
+    """Weighted quantiles by interpolating the weighted empirical CDF."""
+    order = np.argsort(values)
+    v = np.asarray(values, dtype=float)[order]
+    w = np.asarray(weights, dtype=float)[order]
+    pos = (np.cumsum(w) - 0.5 * w) / w.sum()
+    return np.interp(qs, pos, v)
+
+
+def blend_cumulative_summary(blend):
+    """Weighted mean and 10/50/90th percentiles of cumulative inches by date.
+
+    Each member is accumulated on its own first, then combined with the model
+    weights, the same order of operations as cumulative_summary.
+    """
+    df = blend.sort_values(["model", "member", "date"]).copy()
+    df["cum_in"] = df.groupby(["model", "member"])["region_precip_mm"].cumsum() / MM_PER_INCH
+    rows = []
+    for date, g in df.groupby("date"):
+        v = g["cum_in"].to_numpy()
+        w = g["weight"].to_numpy()
+        p10, med, p90 = _wquantile(v, w, [0.1, 0.5, 0.9])
+        rows.append({"date": date, "mean": float(np.average(v, weights=w)),
+                     "p10": p10, "median": med, "p90": p90})
+    out = pd.DataFrame(rows)
+    for col in ["mean", "p10", "median", "p90"]:
+        out[col] = out[col].round(2)
+    return out
+
+
+def blend_daily_matrix(blend, metric="chance", threshold_in=0.10):
+    """Rows Blend, then each model; columns dates.
+
+    chance: weighted percent of members at or above threshold_in inches.
+    median: weighted median daily total in inches.
+    """
+    def one(sub):
+        out = {}
+        for date, g in sub.groupby("date"):
+            v = (g["region_precip_mm"] / MM_PER_INCH).to_numpy()
+            w = g["weight"].to_numpy()
+            if metric == "chance":
+                out[date] = w[v >= threshold_in].sum() / w.sum() * 100
+            else:
+                out[date] = _wquantile(v, w, [0.5])[0]
+        return pd.Series(out)
+
+    rows = {"Blend": one(blend)}
+    for name in blend["model"].unique():
+        rows[name] = one(blend[blend["model"] == name])
+    return pd.DataFrame(rows).T.sort_index(axis=1)
+
+
+def blend_member_matrix(blend, cumulative=False):
+    """(members, means) frames for the plume matrix.
+
+    members: one row per member, labeled like 'WN2 M07' or 'EPS CONT'.
+    means: rows BLEND (equal-weight average of the model means) and one per model.
+    """
+    member_frames, model_means = [], {}
+    for name in blend["model"].unique():
+        sub = blend[blend["model"] == name][["member", "date", "region_precip_mm"]]
+        mm = member_matrix(sub, cumulative=cumulative)
+        model_means[name] = mm.loc["Mean"]
+        body = mm.iloc[:-1].copy()
+        body.index = [f"{name} {'CONT' if i == 'Control' else i}" for i in body.index]
+        member_frames.append(body)
+    means = pd.DataFrame(model_means).T
+    means.loc["BLEND"] = means.mean(axis=0)
+    means = means.loc[["BLEND"] + list(model_means)].round(2)
+    return pd.concat(member_frames), means
+
+
+# ---------------------------------------------------------------------------
+# Figures
+# ---------------------------------------------------------------------------
+
+def fig_cumulative(summary, mean_label="Mean"):
+    """Cumulative line chart: 10th-90th band, median and mean."""
+    import plotly.graph_objects as go
+    fig = go.Figure()
+    # Each trace gets an explicit hover label, so none shows as "trace N".
+    fig.add_trace(go.Scatter(
+        x=summary["date"], y=summary["p90"], mode="lines",
+        line={"width": 0}, showlegend=False,
+        hovertemplate="90th pct: %{y:.2f} in<extra></extra>",
+    ))
+    fig.add_trace(go.Scatter(
+        x=summary["date"], y=summary["p10"], mode="lines",
+        line={"width": 0}, fill="tonexty",
+        fillcolor="rgba(70,130,180,0.25)", name="10th–90th percentile",
+        hovertemplate="10th pct: %{y:.2f} in<extra></extra>",
+    ))
+    fig.add_trace(go.Scatter(
+        x=summary["date"], y=summary["median"], mode="lines",
+        name="Median", line={"width": 2.5},
+        hovertemplate="Median: %{y:.2f} in<extra></extra>",
+    ))
+    fig.add_trace(go.Scatter(
+        x=summary["date"], y=summary["mean"], mode="lines",
+        name=mean_label, line={"width": 2, "dash": "dash"},
+        hovertemplate=mean_label + ": %{y:.2f} in<extra></extra>",
+    ))
+    fig.update_layout(
+        yaxis_title="Cumulative precipitation (in)",
+        xaxis_title="Date",
+        hovermode="x unified",
+        height=420,
+        margin={"t": 30},
+    )
+    return fig
+
+
+def fig_daily_matrix(matrix, use_chance, threshold_in):
+    """Heatmap of chance of rain (percent) or median daily total (inches)."""
+    import plotly.graph_objects as go
+    day_labels = [d.strftime("%a %b %d") for d in matrix.columns]
+    fig = go.Figure(go.Heatmap(
+        z=matrix.values, x=day_labels, y=list(matrix.index),
+        colorscale="Blues", zmin=0, zmax=100 if use_chance else None,
+        text=matrix.round(0 if use_chance else 2).values,
+        texttemplate="%{text}%" if use_chance else "%{text}",
+        hovertemplate=(
+            "%{y}<br>%{x}<br>"
+            + ("Chance of ≥ " + f"{threshold_in:.2f}" + " in: %{z:.0f}%"
+               if use_chance else "Median: %{z:.2f} in")
+            + "<extra></extra>"
+        ),
+        colorbar={"title": "%" if use_chance else "in"},
+    ))
+    fig.update_layout(
+        height=max(190, 46 * len(matrix.index) + 90),
+        margin={"t": 10, "b": 10},
+        xaxis={"side": "top"}, yaxis={"autorange": "reversed"},
+    )
+    return fig
+
+
+def fig_member_plume(members, means, member_font=9, mean_font=14):
+    """Plume matrix: one row per member, a separate mean panel at the bottom.
+
+    members, means: DataFrames of inches with date columns; the row labels are
+    used as shown. Cells print their value; colors follow PLUME_EDGES.
+    """
+    import plotly.graph_objects as go
+    days = [d.strftime("%a %b %d") for d in members.columns]
+    nb = len(PLUME_COLORS)
+
+    def fmt(v):
+        if v < 0.01:
+            return ""
+        return f"{v:.2f}".rstrip("0").rstrip(".") if v < 10 else f"{v:.1f}"
+
+    def panel(frame, yaxis_id, show_scale, font_size):
+        vals = frame.values
+        bins = plume_bin(vals)
+        light = plume_text_is_light(bins)
+        txt = np.vectorize(fmt)(vals).astype(object)
+        dark_txt = np.where(light, "", txt)
+        light_txt = np.where(light, txt, "")
+        heat = go.Heatmap(
+            z=bins, x=days, y=list(frame.index),
+            colorscale=plume_colorscale(), zmin=-0.5, zmax=nb - 0.5,
+            xgap=1, ygap=1, yaxis=yaxis_id,
+            customdata=vals, text=dark_txt, texttemplate="%{text}",
+            textfont={"size": font_size, "color": "black"},
+            hovertemplate="%{y}<br>%{x}<br>%{customdata:.2f} in<extra></extra>",
+            showscale=show_scale,
+            colorbar=dict(
+                tickvals=[i - 0.5 for i in range(1, nb)],
+                ticktext=[("%g" % e) for e in PLUME_EDGES],
+                tickfont={"size": 8}, len=0.9, y=0.55, thickness=12, title="in",
+            ) if show_scale else None,
+        )
+        xs, ys = np.meshgrid(days, list(frame.index))
+        over = go.Scatter(
+            x=xs.ravel(), y=ys.ravel(), mode="text", text=light_txt.ravel(),
+            textfont={"size": font_size, "color": "white"}, hoverinfo="skip",
+            showlegend=False, xaxis="x", yaxis=yaxis_id,
+        )
+        return heat, over
+
+    fig = go.Figure()
+    for tr in panel(members, "y", True, member_font):
+        fig.add_trace(tr)
+    for tr in panel(means, "y2", False, mean_font):
+        fig.add_trace(tr)
+
+    main_px = 15 * len(members)
+    mean_px = (56 if len(means) == 1 else 36) * len(means)
+    gap_px, top_px, bottom_px = 50, 40, 20
+    plot_h = main_px + gap_px + mean_px
+    fig.update_layout(
+        height=plot_h + top_px + bottom_px,
+        margin={"t": top_px, "b": bottom_px, "r": 10},
+        plot_bgcolor="white",
+        xaxis={"side": "top", "type": "category"},
+        yaxis={"domain": [(mean_px + gap_px) / plot_h, 1.0], "autorange": "reversed",
+               "type": "category", "tickfont": {"size": member_font},
+               "tickmode": "array", "tickvals": list(members.index),
+               "ticktext": list(members.index)},
+        yaxis2={"domain": [0.0, mean_px / plot_h], "autorange": "reversed",
+                "type": "category", "anchor": "x", "tickmode": "array",
+                "tickvals": list(means.index), "ticktext": list(means.index)},
+    )
+    return fig

@@ -741,6 +741,17 @@ if analysis_mode == "Comparison Mode":
 else:
     comparison_mode = None
 
+if analysis_mode == "Medium-Range Forecast":
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### Forecast Mode")
+    forecast_mode = st.sidebar.radio(
+        "Forecast type:",
+        ["Regional (WN2)", "Single-Point (Model Blend)"],
+        index=0,
+    )
+else:
+    forecast_mode = None
+
 st.sidebar.markdown("---")
 
 
@@ -750,7 +761,7 @@ st.sidebar.markdown("---")
 
 st.title("California Precipitation Analysis")
 
-if not selected_regions:
+if not selected_regions and forecast_mode != "Single-Point (Model Blend)":
     st.warning("Select at least one hydrological region.")
     st.stop()
 
@@ -2071,27 +2082,11 @@ if analysis_mode == "Comparison Mode":
 
 elif analysis_mode == "Medium-Range Forecast":
 
-    st.header("Medium-Range Forecast (WeatherNext 2)")
-    st.caption(
-        "64-member ensemble, 15 days, averaged over the grid cells inside each "
-        "selected hydrological region. The line shows cumulative precipitation "
-        "from the forecast start, in inches. The shaded band is the 10th to 90th "
-        "percentile of the cumulative totals across members."
-    )
-
     try:
         import forecast
     except ImportError:
         st.error("forecast.py is missing from the app folder.")
         st.stop()
-
-    grid_step = st.selectbox(
-        "Grid spacing (degrees)",
-        [0.5, 0.25],
-        index=0,
-        help="0.5 uses about a quarter of the grid points of 0.25 and is the "
-             "default because the API counts each location toward your quota.",
-    )
 
     # The local date is part of the cache key, so a new forecast day triggers a
     # fresh fetch and the chart's date range moves forward.
@@ -2103,224 +2098,282 @@ elif analysis_mode == "Medium-Range Forecast":
         + pd.Timestamp.now(tz="America/Los_Angeles").strftime("%Y-%m-%d")
     )
 
-    @st.cache_data(ttl=6 * 3600, show_spinner="Fetching WeatherNext 2 ensemble...")
-    def cached_member_means(points, forecast_days, day_key):
-        # Request one extra day, because the API leaves the last day empty.
-        # member_region_means keeps the first forecast_days days with data.
-        raw = forecast.fetch_daily_precip(list(points), forecast_days=forecast_days + 1)
-        fetched_at = pd.Timestamp.now(tz="UTC")
-        return forecast.member_region_means(raw, max_days=forecast_days), fetched_at
-
-    # TEMPORARY: California forecast is paused to avoid spending API quota
-    # until the WeatherNext data arrives. Remove this set to re-enable it.
-    FORECAST_PAUSED_REGIONS = {"California"}
-
-    for region_name in selected_regions:
-        if region_name in FORECAST_PAUSED_REGIONS:
-            st.info(f"{region_name} forecast is paused until the WeatherNext data is available.")
-            continue
-        polygon = regions[region_name]["polygon"]
-        points = forecast.grid_points(
-            polygon, engine.point_in_polygon, step=grid_step
-        )
-        if not points:
-            st.warning(f"No grid points fall inside {region_name} at this spacing.")
-            continue
-
-        try:
-            per_member, fetched_at = cached_member_means(
-                tuple(points), 15, forecast_day_key
-            )
-        except Exception as exc:
-            st.error(f"{region_name}: forecast request failed: {exc}")
-            continue
-
-        summary = forecast.cumulative_summary(per_member)
-
-        st.subheader(region_name)
-        first_day = per_member["date"].min().strftime("%b %d, %Y")
-        last_day = per_member["date"].max().strftime("%b %d, %Y")
-        st.caption(
-            f"Source: Open-Meteo, WeatherNext 2 ensemble · "
-            f"{len(points)} grid points · {per_member['member'].nunique()} members · "
-            f"Forecast covers {first_day} to {last_day} · "
-            f"Retrieved {fetched_at.strftime('%b %d, %Y %H:%M')} UTC"
-        )
-
-        import numpy as np
-        import plotly.graph_objects as go
-        fig = go.Figure()
-        # Each trace gets an explicit hover label, so none shows as "trace N".
-        fig.add_trace(go.Scatter(
-            x=summary["date"], y=summary["p90"], mode="lines",
-            line={"width": 0}, showlegend=False,
-            hovertemplate="90th pct: %{y:.2f} in<extra></extra>",
-        ))
-        fig.add_trace(go.Scatter(
-            x=summary["date"], y=summary["p10"], mode="lines",
-            line={"width": 0}, fill="tonexty",
-            fillcolor="rgba(70,130,180,0.25)", name="10th–90th percentile",
-            hovertemplate="10th pct: %{y:.2f} in<extra></extra>",
-        ))
-        fig.add_trace(go.Scatter(
-            x=summary["date"], y=summary["median"], mode="lines",
-            name="Median", line={"width": 2.5},
-            hovertemplate="Median: %{y:.2f} in<extra></extra>",
-        ))
-        fig.add_trace(go.Scatter(
-            x=summary["date"], y=summary["mean"], mode="lines",
-            name="Mean", line={"width": 2, "dash": "dash"},
-            hovertemplate="Mean: %{y:.2f} in<extra></extra>",
-        ))
-        fig.update_layout(
-            yaxis_title="Cumulative precipitation (in)",
-            xaxis_title="Date",
-            hovermode="x unified",
-            height=420,
-            margin={"t": 30},
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
+    def show_forecast_table(summary):
         table = summary.copy()
         table["date"] = table["date"].dt.strftime("%a %b %d")
         table = table.rename(columns={
             "date": "Day", "mean": "Cumulative mean (in)", "p10": "Cumulative 10th pct (in)",
             "median": "Cumulative median (in)", "p90": "Cumulative 90th pct (in)",
         })
-        st.dataframe(
-            table.round(2),
-            use_container_width=True,
-            hide_index=True,
-        )
+        st.dataframe(table.round(2), use_container_width=True, hide_index=True)
 
-        # Daily precipitation matrix for this region (chance of rain or median).
-        st.markdown("**Daily precipitation matrix**")
+    def daily_matrix_controls(key):
         mcol1, mcol2 = st.columns(2)
-        matrix_metric = mcol1.radio(
+        metric = mcol1.radio(
             "Daily matrix shows",
             ["Chance of rain", "Median daily total"],
             horizontal=True,
-            key=f"fc_matrix_metric_{region_name}",
+            key=f"fc_matrix_metric_{key}",
         )
-        threshold_in = mcol2.selectbox(
+        threshold = mcol2.selectbox(
             "Rain threshold (in/day)",
             [0.01, 0.10, 0.25, 0.50, 1.00],
             index=1,
-            disabled=(matrix_metric != "Chance of rain"),
-            key=f"fc_matrix_threshold_{region_name}",
-            help="A member counts as 'rain' when the region-wide average "
-                 "for the day is at or above this amount.",
+            disabled=(metric != "Chance of rain"),
+            key=f"fc_matrix_threshold_{key}",
+            help="A member counts as 'rain' when the day's total is at or above this amount.",
         )
-        use_chance = matrix_metric == "Chance of rain"
-        matrix = forecast.daily_matrix(
-            {region_name: per_member},
+        return metric == "Chance of rain", threshold
+
+    if forecast_mode == "Regional (WN2)":
+
+        st.header("Medium-Range Forecast (WeatherNext 2)")
+        st.caption(
+            "64-member ensemble, 15 days, averaged over the grid cells inside each "
+            "selected hydrological region. The line shows cumulative precipitation "
+            "from the forecast start, in inches. The shaded band is the 10th to 90th "
+            "percentile of the cumulative totals across members."
+        )
+
+        grid_step = st.selectbox(
+            "Grid spacing (degrees)",
+            [0.5, 0.25],
+            index=0,
+            help="0.5 uses about a quarter of the grid points of 0.25 and is the "
+                 "default because the API counts each location toward your quota.",
+        )
+
+        @st.cache_data(ttl=6 * 3600, show_spinner="Fetching WeatherNext 2 ensemble...")
+        def cached_member_means(points, forecast_days, day_key):
+            # Request one extra day, because the API leaves the last day empty.
+            # member_region_means keeps the first forecast_days days with data.
+            raw = forecast.fetch_daily_precip(list(points), forecast_days=forecast_days + 1)
+            fetched_at = pd.Timestamp.now(tz="UTC")
+            return forecast.member_region_means(raw, max_days=forecast_days), fetched_at
+
+        # TEMPORARY: California forecast is paused to avoid spending API quota
+        # until the WeatherNext data arrives. Remove this set to re-enable it.
+        FORECAST_PAUSED_REGIONS = {"California"}
+
+        for region_name in selected_regions:
+            if region_name in FORECAST_PAUSED_REGIONS:
+                st.info(f"{region_name} forecast is paused until the WeatherNext data is available.")
+                continue
+            polygon = regions[region_name]["polygon"]
+            points = forecast.grid_points(
+                polygon, engine.point_in_polygon, step=grid_step
+            )
+            if not points:
+                st.warning(f"No grid points fall inside {region_name} at this spacing.")
+                continue
+
+            try:
+                per_member, fetched_at = cached_member_means(
+                    tuple(points), 15, forecast_day_key
+                )
+            except Exception as exc:
+                st.error(f"{region_name}: forecast request failed: {exc}")
+                continue
+
+            summary = forecast.cumulative_summary(per_member)
+
+            st.subheader(region_name)
+            first_day = per_member["date"].min().strftime("%b %d, %Y")
+            last_day = per_member["date"].max().strftime("%b %d, %Y")
+            st.caption(
+                f"Source: Open-Meteo, WeatherNext 2 ensemble · "
+                f"{len(points)} grid points · {per_member['member'].nunique()} members · "
+                f"Forecast covers {first_day} to {last_day} · "
+                f"Retrieved {fetched_at.strftime('%b %d, %Y %H:%M')} UTC"
+            )
+
+            st.plotly_chart(forecast.fig_cumulative(summary), use_container_width=True)
+            show_forecast_table(summary)
+
+            # Daily precipitation matrix for this region (chance of rain or median).
+            st.markdown("**Daily precipitation matrix**")
+            use_chance, threshold_in = daily_matrix_controls(region_name)
+            matrix = forecast.daily_matrix(
+                {region_name: per_member},
+                metric="chance" if use_chance else "median",
+                threshold_in=threshold_in,
+            )
+            st.plotly_chart(
+                forecast.fig_daily_matrix(matrix, use_chance, threshold_in),
+                use_container_width=True,
+            )
+            st.caption(
+                "Uses the 64 WeatherNext 2 members. Values describe the region-wide "
+                "average for the day, so a cell can read low even when a single "
+                "location in the region gets rain."
+            )
+
+            # Member-by-day plume matrix: x = day, y = member, MEAN panel at the bottom.
+            st.markdown("**Member matrix**")
+            mm_mode = st.radio(
+                "Matrix values",
+                ["Cumulative", "Daily"],
+                horizontal=True,
+                key=f"fc_member_mode_{region_name}",
+            )
+            mm = forecast.member_matrix(per_member, cumulative=(mm_mode == "Cumulative"))
+            members_only = mm.iloc[:-1].copy()
+            members_only.index = ["CONT" if i == "Control" else i for i in members_only.index]
+            mean_row = mm.loc[["Mean"]].rename(index={"Mean": "MEAN"})
+            st.plotly_chart(
+                forecast.fig_member_plume(members_only, mean_row),
+                use_container_width=True,
+            )
+            st.caption(
+                mm_mode
+                + " region-average precipitation in inches for each of the 64 members "
+                "(CONT is the control run). The MEAN row averages the members."
+            )
+            st.download_button(
+                "Download member matrix as CSV",
+                mm.rename(columns=lambda d: d.strftime("%Y-%m-%d")).to_csv(index_label="Member"),
+                file_name=f"wn2_members_{region_name.replace(' ', '_')}_{mm_mode.lower()}.csv",
+                mime="text/csv",
+                key=f"fc_member_csv_{region_name}",
+            )
+
+        st.caption(
+            "Skill declines with lead time. Treat later days as a range of possibilities, "
+            "not a single expected total. Data: Open-Meteo, Google WeatherNext 2."
+        )
+
+    else:
+        # ------------------------------------------------------------------
+        # Single-point model blend: WN2 + ECMWF EPS + AIFS-ENS, equal weight
+        # per model. The single-run AIFS is not used.
+        # ------------------------------------------------------------------
+        st.header("Single-Point Forecast (Model Blend)")
+        st.caption(
+            "Blend of three ensembles at one location: Google WeatherNext 2 (64 members), "
+            "ECMWF EPS and ECMWF AIFS-ENS. Each model counts equally in the blend, "
+            "whatever its member count. Totals are accumulated per member first, then "
+            "averaged; the band is the weighted 10th to 90th percentile."
+        )
+
+        FORECAST_PRESETS = {
+            "Sacramento": (38.58, -121.49),
+            "San Francisco": (37.77, -122.42),
+            "Eureka": (40.80, -124.16),
+            "Redding": (40.59, -122.39),
+            "Mount Shasta": (41.31, -122.31),
+            "South Lake Tahoe": (38.94, -119.98),
+            "Donner Summit": (39.32, -120.33),
+            "Fresno": (36.74, -119.79),
+            "Mammoth Lakes": (37.65, -118.97),
+            "Bishop": (37.36, -118.40),
+            "Santa Barbara": (34.42, -119.70),
+            "Los Angeles (LAX)": (33.94, -118.41),
+            "San Diego": (32.72, -117.16),
+            "Palm Springs": (33.83, -116.55),
+        }
+        choices = list(FORECAST_PRESETS) + ["Custom lat/lon"]
+        pc1, pc2, pc3 = st.columns([2, 1, 1])
+        choice = pc1.selectbox("Location", choices, index=0, key="sp_location")
+        if choice == "Custom lat/lon":
+            lat = pc2.number_input("Latitude", min_value=32.0, max_value=42.5,
+                                   value=38.58, step=0.01, format="%.2f", key="sp_lat")
+            lon = pc3.number_input("Longitude", min_value=-125.0, max_value=-114.0,
+                                   value=-121.49, step=0.01, format="%.2f", key="sp_lon")
+        else:
+            lat, lon = FORECAST_PRESETS[choice]
+            pc2.text_input("Latitude", f"{lat:.2f}", disabled=True)
+            pc3.text_input("Longitude", f"{lon:.2f}", disabled=True)
+        point_name = choice if choice != "Custom lat/lon" else f"{lat:.2f}, {lon:.2f}"
+
+        @st.cache_data(ttl=6 * 3600, show_spinner="Fetching WeatherNext 2, EPS and AIFS-ENS...")
+        def cached_point_blend(lat, lon, day_key):
+            per_model, errors = forecast.fetch_point_blend(lat, lon, forecast_days=15)
+            return per_model, errors, pd.Timestamp.now(tz="UTC")
+
+        try:
+            per_model, model_errors, fetched_at = cached_point_blend(
+                round(float(lat), 2), round(float(lon), 2), forecast_day_key
+            )
+        except Exception as exc:
+            st.error(f"Forecast request failed: {exc}")
+            st.stop()
+
+        for name, msg in model_errors.items():
+            st.warning(f"{name} unavailable ({msg}). The blend uses the remaining models.")
+        if not per_model:
+            st.error("No model returned data for this point. Try again in a few minutes.")
+            st.stop()
+
+        blend = forecast.blend_members(per_model)
+        summary = forecast.blend_cumulative_summary(blend)
+        member_counts = ", ".join(
+            f"{n} ({df['member'].nunique()} members)" for n, df in per_model.items()
+        )
+
+        st.subheader(point_name)
+        st.caption(
+            f"Source: Open-Meteo · {member_counts} · "
+            f"Forecast covers {blend['date'].min().strftime('%b %d, %Y')} to "
+            f"{blend['date'].max().strftime('%b %d, %Y')} · "
+            f"Retrieved {fetched_at.strftime('%b %d, %Y %H:%M')} UTC"
+        )
+
+        st.plotly_chart(
+            forecast.fig_cumulative(summary, mean_label="Blend mean"),
+            use_container_width=True,
+        )
+        show_forecast_table(summary)
+
+        st.markdown("**Daily precipitation matrix**")
+        use_chance, threshold_in = daily_matrix_controls("point")
+        matrix = forecast.blend_daily_matrix(
+            blend,
             metric="chance" if use_chance else "median",
             threshold_in=threshold_in,
         )
-        day_labels = [d.strftime("%a %b %d") for d in matrix.columns]
-        fig_m = go.Figure(go.Heatmap(
-            z=matrix.values, x=day_labels, y=list(matrix.index),
-            colorscale="Blues", zmin=0, zmax=100 if use_chance else None,
-            text=matrix.round(0 if use_chance else 2).values,
-            texttemplate="%{text}%" if use_chance else "%{text}",
-            hovertemplate=(
-                "%{x}<br>"
-                + ("Chance of ≥ " + f"{threshold_in:.2f}" + " in: %{z:.0f}%"
-                   if use_chance else "Median: %{z:.2f} in")
-                + "<extra></extra>"
-            ),
-            colorbar={"title": "%" if use_chance else "in"},
-        ))
-        fig_m.update_layout(
-            height=190, margin={"t": 10, "b": 10},
-            xaxis={"side": "top"}, yaxis={"autorange": "reversed"},
+        st.plotly_chart(
+            forecast.fig_daily_matrix(matrix, use_chance, threshold_in),
+            use_container_width=True,
         )
-        st.plotly_chart(fig_m, use_container_width=True)
         st.caption(
-            "Uses the 64 WeatherNext 2 members. Values describe the region-wide "
-            "average for the day, so a cell can read low even when a single "
-            "location in the region gets rain."
+            "Blend weights each model equally. Each model is read at its nearest "
+            "0.25° grid cell, so a point in the mountains reflects the cell average "
+            "rather than the exact spot."
         )
 
-        # Member-by-day plume matrix: x = day, y = member, MEAN panel at the bottom.
         st.markdown("**Member matrix**")
         mm_mode = st.radio(
             "Matrix values",
             ["Cumulative", "Daily"],
             horizontal=True,
-            key=f"fc_member_mode_{region_name}",
+            key="fc_member_mode_point",
         )
-        mm = forecast.member_matrix(per_member, cumulative=(mm_mode == "Cumulative"))
-        members_only = mm.iloc[:-1].copy()
-        members_only.index = ["CONT" if i == "Control" else i for i in members_only.index]
-        mean_row = mm.loc[["Mean"]]
-        mm_days = [d.strftime("%a %b %d") for d in mm.columns]
-        n_members = len(members_only)
-        nb = len(forecast.PLUME_COLORS)
-
-        def _plume_panel(frame, yaxis_id, show_scale, font_size=9):
-            vals = frame.values
-            bins = forecast.plume_bin(vals)
-            light = forecast.plume_text_is_light(bins)
-            txt = np.where(vals >= 0.01, np.vectorize(lambda v: f"{v:.2f}".rstrip("0").rstrip(".") if v < 10 else f"{v:.1f}")(vals), "")
-            dark_txt = np.where(light, "", txt)
-            light_txt = np.where(light, txt, "")
-            heat = go.Heatmap(
-                z=bins, x=mm_days, y=list(frame.index),
-                colorscale=forecast.plume_colorscale(), zmin=-0.5, zmax=nb - 0.5,
-                xgap=1, ygap=1, yaxis=yaxis_id,
-                customdata=vals, text=dark_txt, texttemplate="%{text}",
-                textfont={"size": font_size, "color": "black"},
-                hovertemplate="%{y}<br>%{x}<br>%{customdata:.2f} in<extra></extra>",
-                showscale=show_scale,
-                colorbar=dict(
-                    tickvals=[i - 0.5 for i in range(1, nb)],
-                    ticktext=[("%g" % e) for e in forecast.PLUME_EDGES],
-                    tickfont={"size": 12}, len=0.9, y=0.55, thickness=24, title="in",
-                ) if show_scale else None,
-            )
-            xs, ys = np.meshgrid(mm_days, list(frame.index))
-            over = go.Scatter(
-                x=xs.ravel(), y=ys.ravel(), mode="text", text=light_txt.ravel(),
-                textfont={"size": font_size, "color": "white"}, hoverinfo="skip",
-                showlegend=False, xaxis="x", yaxis=yaxis_id,
-            )
-            return heat, over
-
-        fig_mm = go.Figure()
-        for tr in _plume_panel(members_only, "y", True):
-            fig_mm.add_trace(tr)
-        for tr in _plume_panel(mean_row, "y2", False, font_size=20):
-            fig_mm.add_trace(tr)
-        fig_mm.update_layout(
-            height=max(520, 15 * n_members + 200),
-            margin={"t": 30, "r": 10},
-            plot_bgcolor="white",
-            xaxis={"side": "top", "type": "category"},
-            yaxis={"domain": [0.09, 1.0], "autorange": "reversed", "type": "category",
-                   "tickfont": {"size": 9}, "tickmode": "array",
-                   "tickvals": list(members_only.index), "ticktext": list(members_only.index)},
-            yaxis2={"domain": [0.0, 0.065], "type": "category", "anchor": "x",
-                    "tickmode": "array", "tickvals": ["Mean"], "ticktext": ["MEAN"]},
+        members_df, means_df = forecast.blend_member_matrix(
+            blend, cumulative=(mm_mode == "Cumulative")
         )
-        st.plotly_chart(fig_mm, use_container_width=True)
+        st.plotly_chart(
+            forecast.fig_member_plume(members_df, means_df),
+            use_container_width=True,
+        )
         st.caption(
-            ("Cumulative" if mm_mode == "Cumulative" else "Daily")
-            + " region-average precipitation in inches for each of the 64 members "
-            "(CONT is the control run). The MEAN row averages the members."
+            mm_mode + " precipitation in inches for every member of each model "
+            "(CONT is each model's control run). BLEND in the bottom panel is the "
+            "equal-weight average of the three model means."
         )
+        csv_df = pd.concat([members_df, means_df])
         st.download_button(
             "Download member matrix as CSV",
-            mm.rename(columns=lambda d: d.strftime("%Y-%m-%d")).to_csv(index_label="Member"),
-            file_name=f"wn2_members_{region_name.replace(' ', '_')}_{mm_mode.lower()}.csv",
+            csv_df.rename(columns=lambda d: d.strftime("%Y-%m-%d")).to_csv(index_label="Member"),
+            file_name=f"blend_members_{point_name.replace(' ', '_').replace(',', '')}_{mm_mode.lower()}.csv",
             mime="text/csv",
-            key=f"fc_member_csv_{region_name}",
+            key="fc_member_csv_point",
         )
 
-    st.caption(
-        "Skill declines with lead time. Treat later days as a range of possibilities, "
-        "not a single expected total. Data: Open-Meteo, Google WeatherNext 2."
-    )
+        st.caption(
+            "Skill declines with lead time. Treat later days as a range of possibilities, "
+            "not a single expected total. Data: Open-Meteo (Google WeatherNext 2, "
+            "ECMWF IFS ensemble, ECMWF AIFS ensemble)."
+        )
 
 elif analysis_mode == "Extremes / Records":
     st.header("Extremes / Records")
