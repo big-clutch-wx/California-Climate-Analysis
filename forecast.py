@@ -563,7 +563,7 @@ def fig_member_plume(members, means, member_font=9, mean_font=28, label_font=9,
     return fig
 
 
-def fig_mean_strip(means, mean_font=14, label_font=9, date_font=12, colorbar_font=8):
+def fig_mean_strip(means, mean_font=28, label_font=9, date_font=14, colorbar_font=16):
     """A mean-only plume strip (for the blend mean above the member matrices)."""
     import plotly.graph_objects as go
     days = [d.strftime("%a %b %d") for d in means.columns]
