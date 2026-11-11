@@ -392,28 +392,40 @@ def blend_daily_matrix(blend, metric="chance", threshold_in=0.10):
     return pd.DataFrame(rows).T.sort_index(axis=1)
 
 
-def blend_member_matrix(blend, cumulative=False):
+def blend_member_matrix(blend, cumulative=False, per_model=None):
     """(blend_mean, by_model) for the plume matrices.
 
     blend_mean: one-row DataFrame labeled BLEND, the equal-weight average of the
-        model means (computed before rounding).
+        model means over the days every model has (computed before rounding).
     by_model: {model: (members, mean_row)}. members has one row per member
         (CONT, M01, ...); mean_row has one row labeled MEAN.
+    per_model: optional {model: daily member totals}. When given, each model's
+        matrix uses all of that model's own days, including days past the end of
+        the blend. Every frame is padded to the same date columns (blank where a
+        model has no data) so the matrices line up.
     """
-    by_model, model_means = {}, {}
+    by_model, model_means, all_dates = {}, {}, set()
     for name in blend["model"].unique():
-        sub = blend[blend["model"] == name][["member", "date", "region_precip_mm"]]
-        mm = member_matrix(sub, cumulative=cumulative)
+        common = blend[blend["model"] == name][["member", "date", "region_precip_mm"]]
+        own = per_model[name][["member", "date", "region_precip_mm"]] if (
+            per_model is not None and name in per_model) else common
+        mm = member_matrix(own, cumulative=cumulative)
         body = mm.iloc[:-1].copy()
         body.index = ["CONT" if i == "Control" else i for i in body.index]
         by_model[name] = (body, mm.loc[["Mean"]].rename(index={"Mean": "MEAN"}))
+        all_dates |= set(mm.columns)
 
-        inches = sub.assign(inches=sub["region_precip_mm"] / MM_PER_INCH)
+        inches = common.assign(inches=common["region_precip_mm"] / MM_PER_INCH)
         wide = inches.pivot(index="member", columns="date", values="inches").sort_index(axis=1)
         if cumulative:
             wide = wide.cumsum(axis=1)
         model_means[name] = wide.mean(axis=0)
-    blend_mean = pd.DataFrame(model_means).T.mean(axis=0).round(2).to_frame("BLEND").T
+
+    dates = sorted(all_dates)
+    blend_mean = (pd.DataFrame(model_means).T.mean(axis=0).round(2)
+                  .to_frame("BLEND").T.reindex(columns=dates))
+    by_model = {name: (body.reindex(columns=dates), mean.reindex(columns=dates))
+                for name, (body, mean) in by_model.items()}
     return blend_mean, by_model
 
 
@@ -497,10 +509,13 @@ def _plume_traces(frame, days, yaxis_id, show_scale, cell_font, colorbar_font):
     """Heatmap plus a white-text overlay for dark cells, for one panel."""
     import plotly.graph_objects as go
     nb = len(PLUME_COLORS)
-    vals = frame.values
-    bins = plume_bin(vals)
-    light = plume_text_is_light(bins)
-    txt = np.vectorize(_plume_fmt)(vals).astype(object)
+    vals = frame.values.astype(float)
+    missing = np.isnan(vals)             # days a model has no data for stay blank
+    safe = np.where(missing, 0.0, vals)
+    bins = plume_bin(safe).astype(float)
+    bins[missing] = np.nan
+    light = plume_text_is_light(plume_bin(safe)) & ~missing
+    txt = np.vectorize(_plume_fmt)(safe).astype(object)
     heat = go.Heatmap(
         z=bins, x=days, y=list(frame.index),
         colorscale=plume_colorscale(), zmin=-0.5, zmax=nb - 0.5,

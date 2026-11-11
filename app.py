@@ -2409,8 +2409,8 @@ elif analysis_mode == "Medium-Range Forecast":
             st.info(
                 f"The blend ends {blend['date'].max().strftime('%b %d')} because "
                 f"{', '.join(limiting)} has no complete Pacific-time day after that "
-                "yet. It should reach the next day when that model's next run is "
-                "published."
+                "yet. The model matrices below still show the later days for models "
+                "that have them; those days are not part of the blend."
             )
 
         st.plotly_chart(cumulative_fig(summary, mean_label="Blend mean"),
@@ -2439,8 +2439,10 @@ elif analysis_mode == "Medium-Range Forecast":
             horizontal=True,
             key="fc_member_mode_point",
         )
+        # Each model's matrix uses all of its own days, so a model with later days
+        # than the blend shows them; the blend mean stays on the shared days.
         blend_mean, by_model = forecast.blend_member_matrix(
-            blend, cumulative=(mm_mode == "Cumulative")
+            blend, cumulative=(mm_mode == "Cumulative"), per_model=per_model
         )
 
         st.markdown("**Blend mean**")
@@ -2459,7 +2461,8 @@ elif analysis_mode == "Medium-Range Forecast":
             mm_mode + " precipitation in inches for every member of each model "
             "(CONT is each model's control run). MEAN under each matrix is that "
             "model's own mean; the Blend mean at the top is the equal-weight "
-            "average of the three model means."
+            "average of the three model means over the days all models have. "
+            "Blank cells are days a model has no data for."
         )
         csv_frames = [blend_mean.rename(index={"BLEND": "BLEND MEAN"})]
         for model_name, (m_members, m_mean) in by_model.items():
