@@ -2370,9 +2370,22 @@ elif analysis_mode == "Medium-Range Forecast":
         # Last complete Pacific-time day each model returned. The blend only keeps
         # days that every model has, so the shortest model sets its length.
         model_last_day = {n: df["date"].max() for n, df in per_model.items()}
+        def inferred_init(end_local):
+            """Model run time (UTC), worked back 360 hours from the last data hour.
+
+            The API does not report the run time. All three models run 15 days
+            (360 h) from their 00z and 12z runs, so end time minus 360 h gives it.
+            """
+            end_utc = (pd.Timestamp(end_local)
+                       .tz_localize("America/Los_Angeles", ambiguous=True,
+                                    nonexistent="shift_forward")
+                       .tz_convert("UTC"))
+            init = end_utc - pd.Timedelta(hours=360)
+            return f"{init:%b} {init.day} {init:%H}z"
+
         coverage_text = ", ".join(
             f"{n} to {d.strftime('%b %d')}"
-            + (f" (data ends {df.attrs['data_end'].strftime('%b %d %H:%M')} PT)"
+            + (f" (init {inferred_init(df.attrs['data_end'])})"
                if df.attrs.get("data_end") is not None else "")
             for (n, d), df in zip(model_last_day.items(), per_model.values())
         )
