@@ -2108,7 +2108,7 @@ elif analysis_mode == "Medium-Range Forecast":
     # ======================================================================
     FONT_MEMBER_CELLS = 9       # numbers inside the member matrix cells
     FONT_MEMBER_LABELS = 9      # row labels: CONT, M01, M02, ...
-    FONT_MEAN_CELLS = 24        # numbers inside the MEAN / BLEND boxes
+    FONT_MEAN_CELLS = 20        # numbers inside the MEAN / BLEND boxes
     FONT_DATE_LABELS = 14       # date labels across the top of the member matrices
     FONT_COLORBAR = 16           # numbers on the color bar beside the member matrix
     FONT_DAILY_MATRIX = 24      # text in the daily precipitation matrix
