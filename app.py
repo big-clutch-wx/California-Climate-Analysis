@@ -2097,7 +2097,7 @@ elif analysis_mode == "Medium-Range Forecast":
     # fresh fetch and the chart's date range moves forward.
     # FORECAST_CACHE_VERSION changes whenever the fetch logic changes, so results
     # cached by an older version of forecast.py are not reused from disk.
-    FORECAST_CACHE_VERSION = "hourly-v3"
+    FORECAST_CACHE_VERSION = "hourly-v4"
     forecast_day_key = (
         FORECAST_CACHE_VERSION + "|"
         + pd.Timestamp.now(tz="America/Los_Angeles").strftime("%Y-%m-%d")
@@ -2130,6 +2130,19 @@ elif analysis_mode == "Medium-Range Forecast":
     def daily_matrix_fig(matrix, use_chance, threshold_in):
         return forecast.fig_daily_matrix(matrix, use_chance, threshold_in,
                                          font_size=FONT_DAILY_MATRIX)
+
+    def inferred_init(end_local):
+        """Model run time (UTC), worked back 360 hours from the last data hour.
+
+        The API does not report the run time. All three models run 15 days
+        (360 h) from their 00z and 12z runs, so end time minus 360 h gives it.
+        """
+        end_utc = (pd.Timestamp(end_local)
+                   .tz_localize("America/Los_Angeles", ambiguous=True,
+                                nonexistent="shift_forward")
+                   .tz_convert("UTC"))
+        init = end_utc - pd.Timedelta(hours=360)
+        return f"{init:%b} {init.day} {init:%H}z"
 
     def show_forecast_table(summary):
         table = summary.copy()
@@ -2182,7 +2195,10 @@ elif analysis_mode == "Medium-Range Forecast":
             # member_region_means keeps the first forecast_days days with data.
             raw = forecast.fetch_daily_precip(list(points), forecast_days=forecast_days + 1)
             fetched_at = pd.Timestamp.now(tz="UTC")
-            return forecast.member_region_means(raw, max_days=forecast_days), fetched_at
+            daily = forecast.member_region_means(raw, max_days=forecast_days)
+            # Last hour with data (local time), used to work out the model run.
+            daily.attrs["data_end"] = raw.dropna(subset=["precip_mm"])["time"].max()
+            return daily, fetched_at
 
         # TEMPORARY: California forecast is paused to avoid spending API quota
         # until the WeatherNext data arrives. Remove this set to re-enable it.
@@ -2213,10 +2229,15 @@ elif analysis_mode == "Medium-Range Forecast":
             st.subheader(region_name)
             first_day = per_member["date"].min().strftime("%b %d, %Y")
             last_day = per_member["date"].max().strftime("%b %d, %Y")
+            data_end = per_member.attrs.get("data_end")
+            run_text = f" (init {inferred_init(data_end)})" if data_end is not None else ""
             st.caption(
                 f"Source: Open-Meteo, WeatherNext 2 ensemble · "
                 f"{len(points)} grid points · {per_member['member'].nunique()} members · "
-                f"Forecast covers {first_day} to {last_day} · "
+                f"Forecast covers {first_day} to {last_day} "
+                f"({per_member['date'].nunique()} days) · "
+                f"Complete days available: WN2 to "
+                f"{per_member['date'].max().strftime('%b %d')}{run_text} · "
                 f"Retrieved {fetched_at.strftime('%b %d, %Y %H:%M')} UTC"
             )
 
@@ -2370,19 +2391,6 @@ elif analysis_mode == "Medium-Range Forecast":
         # Last complete Pacific-time day each model returned. The blend only keeps
         # days that every model has, so the shortest model sets its length.
         model_last_day = {n: df["date"].max() for n, df in per_model.items()}
-        def inferred_init(end_local):
-            """Model run time (UTC), worked back 360 hours from the last data hour.
-
-            The API does not report the run time. All three models run 15 days
-            (360 h) from their 00z and 12z runs, so end time minus 360 h gives it.
-            """
-            end_utc = (pd.Timestamp(end_local)
-                       .tz_localize("America/Los_Angeles", ambiguous=True,
-                                    nonexistent="shift_forward")
-                       .tz_convert("UTC"))
-            init = end_utc - pd.Timedelta(hours=360)
-            return f"{init:%b} {init.day} {init:%H}z"
-
         coverage_text = ", ".join(
             f"{n} to {d.strftime('%b %d')}"
             + (f" (init {inferred_init(df.attrs['data_end'])})"
