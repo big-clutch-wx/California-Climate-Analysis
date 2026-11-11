@@ -2227,17 +2227,14 @@ elif analysis_mode == "Medium-Range Forecast":
             summary = forecast.cumulative_summary(per_member)
 
             st.subheader(region_name)
-            first_day = per_member["date"].min().strftime("%b %d, %Y")
-            last_day = per_member["date"].max().strftime("%b %d, %Y")
+            first_day = per_member["date"].min().strftime("%b %d")
+            last_day = per_member["date"].max().strftime("%b %d")
             data_end = per_member.attrs.get("data_end")
             run_text = f" (init {inferred_init(data_end)})" if data_end is not None else ""
             st.caption(
                 f"Source: Open-Meteo, WeatherNext 2 ensemble · "
                 f"{len(points)} grid points · {per_member['member'].nunique()} members · "
-                f"Forecast covers {first_day} to {last_day} "
-                f"({per_member['date'].nunique()} days) · "
-                f"Complete days available: WN2 to "
-                f"{per_member['date'].max().strftime('%b %d')}{run_text} · "
+                f"Complete days available: {first_day} to {last_day}{run_text} · "
                 f"Retrieved {fetched_at.strftime('%b %d, %Y %H:%M')} UTC"
             )
 
