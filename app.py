@@ -2097,7 +2097,7 @@ elif analysis_mode == "Medium-Range Forecast":
     # fresh fetch and the chart's date range moves forward.
     # FORECAST_CACHE_VERSION changes whenever the fetch logic changes, so results
     # cached by an older version of forecast.py are not reused from disk.
-    FORECAST_CACHE_VERSION = "hourly-v4"
+    FORECAST_CACHE_VERSION = "cube-v1"
     forecast_day_key = (
         FORECAST_CACHE_VERSION + "|"
         + pd.Timestamp.now(tz="America/Los_Angeles").strftime("%Y-%m-%d")
@@ -2108,7 +2108,7 @@ elif analysis_mode == "Medium-Range Forecast":
     # ======================================================================
     FONT_MEMBER_CELLS = 9       # numbers inside the member matrix cells
     FONT_MEMBER_LABELS = 9      # row labels: CONT, M01, M02, ...
-    FONT_MEAN_CELLS = 20        # numbers inside the MEAN / BLEND boxes
+    FONT_MEAN_CELLS = 24        # numbers inside the MEAN / BLEND boxes
     FONT_DATE_LABELS = 14       # date labels across the top of the member matrices
     FONT_COLORBAR = 16           # numbers on the color bar beside the member matrix
     FONT_DAILY_MATRIX = 24      # text in the daily precipitation matrix
@@ -2198,6 +2198,7 @@ elif analysis_mode == "Medium-Range Forecast":
             daily = forecast.member_region_means(raw, max_days=forecast_days)
             # Last hour with data (local time), used to work out the model run.
             daily.attrs["data_end"] = raw.dropna(subset=["precip_mm"])["time"].max()
+            daily.attrs["source"] = raw.attrs.get("source", "Open-Meteo")
             return daily, fetched_at
 
         # TEMPORARY: California forecast is paused to avoid spending API quota
@@ -2232,7 +2233,7 @@ elif analysis_mode == "Medium-Range Forecast":
             data_end = per_member.attrs.get("data_end")
             run_text = f" (init {inferred_init(data_end)})" if data_end is not None else ""
             st.caption(
-                f"Source: Open-Meteo, WeatherNext 2 ensemble · "
+                f"Source: {per_member.attrs.get('source', 'Open-Meteo')}, WeatherNext 2 ensemble · "
                 f"{len(points)} grid points · {per_member['member'].nunique()} members · "
                 f"Complete days available: {first_day} to {last_day}{run_text} · "
                 f"Retrieved {fetched_at.strftime('%b %d, %Y %H:%M')} UTC"
@@ -2397,7 +2398,7 @@ elif analysis_mode == "Medium-Range Forecast":
 
         st.subheader(point_name)
         st.caption(
-            f"Source: Open-Meteo · {member_counts} · "
+            f"Source: {'Google (WN2), Open-Meteo (EPS, AIFS-ENS)' if per_model.get('WN2') is not None and per_model['WN2'].attrs.get('source', '').startswith('Google') else 'Open-Meteo'} · {member_counts} · "
             f"Forecast covers {blend['date'].min().strftime('%b %d, %Y')} to "
             f"{blend['date'].max().strftime('%b %d, %Y')} "
             f"({blend['date'].nunique()} days) · "

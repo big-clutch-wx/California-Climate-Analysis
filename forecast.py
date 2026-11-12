@@ -10,6 +10,7 @@ each local day gives a complete window.
 This module does not import compare.py. The app passes in the region polygon
 and point-in-polygon function it already loaded, so boundaries are defined once.
 """
+import io
 import re
 import time
 
@@ -53,6 +54,75 @@ def _get_with_retry(params):
     )
 
 
+# ---------------------------------------------------------------------------
+# WeatherNext 2 straight from Google (published by the wn2_job in the cawn2 bucket)
+# ---------------------------------------------------------------------------
+CUBE_BASE = "https://storage.googleapis.com/cawn2/"
+CUBE_MAX_AGE_H = 30          # older than this and we fall back to Open-Meteo
+_CUBE_CACHE = {}
+
+
+def load_wn2_cube():
+    """Newest published WN2 run: (cube dict, meta dict). Raises if missing or too old."""
+    meta = requests.get(CUBE_BASE + "wn2/latest.json", timeout=20)
+    meta.raise_for_status()
+    meta = meta.json()
+    init = pd.Timestamp(meta["init_utc"]).tz_convert("UTC")
+    age_h = (pd.Timestamp.now(tz="UTC") - init) / pd.Timedelta(hours=1)
+    if age_h > CUBE_MAX_AGE_H:
+        raise ValueError(f"published WN2 run is {age_h:.0f} h old")
+    key = meta["file"]
+    if key not in _CUBE_CACHE:
+        resp = requests.get(CUBE_BASE + key, timeout=120)
+        resp.raise_for_status()
+        with np.load(io.BytesIO(resp.content)) as z:
+            cube = {k: z[k] for k in ("precip", "lat", "lon", "lead_hours", "scale")}
+        _CUBE_CACHE.clear()          # keep only the newest run in memory
+        _CUBE_CACHE[key] = cube
+    return _CUBE_CACHE[key], meta
+
+
+def _nearest(axis, value):
+    return int(np.argmin(np.abs(np.asarray(axis, dtype=float) - value)))
+
+
+def wn2_cube_hourly(points, timezone="America/Los_Angeles"):
+    """Hourly member precipitation (mm) for each (lat, lon), from the published run.
+
+    Same columns as fetch_daily_precip: member, time (local), grid_index, precip_mm.
+    The source is 6-hourly totals on a 0.25 degree grid. Each 6 h total is spread
+    evenly over its six hours, labelled by the hour's end like Open-Meteo, so the
+    rest of the pipeline (24-hour complete-day rule, regional means) is unchanged.
+    """
+    cube, meta = load_wn2_cube()
+    init = pd.Timestamp(meta["init_utc"]).tz_convert("UTC")
+    scale = float(cube["scale"])
+    lead = cube["lead_hours"].astype(int)              # window end, hours after init
+    n_members = cube["precip"].shape[0]
+    hours = np.arange(1, int(lead.max()) + 1)          # hour-ending labels
+    window_of_hour = np.searchsorted(lead, hours)      # which 6 h window holds each hour
+    width = np.diff(np.concatenate([[0], lead]))[window_of_hour]
+    utc = init + pd.to_timedelta(hours, unit="h")
+    local = utc.tz_convert(timezone).tz_localize(None)
+    names = ["precipitation_control"] + [f"precipitation_member{i:02d}" for i in range(1, n_members)]
+
+    frames = []
+    for gi, (lat, lon) in enumerate(points):
+        i, j = _nearest(cube["lat"], lat), _nearest(cube["lon"], lon)
+        win = cube["precip"][:, :, i, j].astype("float32") / scale       # (member, window)
+        hourly = win[:, window_of_hour] / width                           # (member, hour)
+        frames.append(pd.DataFrame({
+            "member": np.repeat(names, hours.size),
+            "time": np.tile(local, n_members),
+            "grid_index": gi,
+            "precip_mm": hourly.ravel(),
+        }))
+    out = pd.concat(frames, ignore_index=True)
+    out.attrs["source"] = "Google WeatherNext 2 (direct)"
+    out.attrs["init_utc"] = str(init)
+    return out
+
+
 def fetch_daily_precip(points, forecast_days=16, timezone="America/Los_Angeles"):
     """Hourly member precipitation for each point, as a long DataFrame.
 
@@ -61,6 +131,10 @@ def fetch_daily_precip(points, forecast_days=16, timezone="America/Los_Angeles")
     'precipitation' prefix and 'member' in the name, and should be checked on the
     first real response.
     """
+    try:
+        return wn2_cube_hourly(points, timezone=timezone)
+    except Exception:  # noqa: BLE001 - fall back to Open-Meteo
+        pass
     rows = []
     chunks = [points[i:i + MAX_POINTS_PER_CALL]
               for i in range(0, len(points), MAX_POINTS_PER_CALL)]
@@ -306,8 +380,16 @@ def fetch_point_blend(lat, lon, forecast_days=15):
         if i:
             time.sleep(1.0)
         try:
-            raw = fetch_point_members(lat, lon, model_id, forecast_days=forecast_days + 1)
+            raw = None
+            if name == "WN2":
+                try:
+                    raw = wn2_cube_hourly([(lat, lon)])
+                except Exception:  # noqa: BLE001 - fall back to Open-Meteo
+                    raw = None
+            if raw is None:
+                raw = fetch_point_members(lat, lon, model_id, forecast_days=forecast_days + 1)
             daily = member_region_means(raw, max_days=forecast_days)
+            daily.attrs["source"] = raw.attrs.get("source", "Open-Meteo")
             if daily.empty:
                 raise ValueError("no complete forecast days returned")
             # Last hour with data (local time), for the coverage readout in the app.
