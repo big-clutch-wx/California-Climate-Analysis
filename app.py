@@ -2144,6 +2144,11 @@ elif analysis_mode == "Medium-Range Forecast":
         init = end_utc - pd.Timedelta(hours=360)
         return f"{init:%b} {init.day} {init:%H}z"
 
+    def run_label(df):
+        """' · init Nov 12 00z' for a model's daily frame, or '' if unknown."""
+        end = df.attrs.get("data_end")
+        return f" · init {inferred_init(end)}" if end is not None else ""
+
     def show_forecast_table(summary):
         table = summary.copy()
         table["date"] = table["date"].dt.strftime("%a %b %d")
@@ -2269,6 +2274,9 @@ elif analysis_mode == "Medium-Range Forecast":
                 key=f"fc_member_mode_{region_name}",
             )
             mm = forecast.member_matrix(per_member, cumulative=(mm_mode == "Cumulative"))
+            st.markdown(
+                f"**WN2** ({per_member['member'].nunique()} members{run_label(per_member)})"
+            )
             members_only = mm.iloc[:-1].copy()
             members_only.index = ["CONT" if i == "Control" else i for i in members_only.index]
             mean_row = mm.loc[["Mean"]].rename(index={"Mean": "MEAN"})
@@ -2455,7 +2463,9 @@ elif analysis_mode == "Medium-Range Forecast":
             use_container_width=True,
         )
         for model_name, (m_members, m_mean) in by_model.items():
-            st.markdown(f"**{model_name}** ({len(m_members)} members)")
+            st.markdown(
+                f"**{model_name}** ({len(m_members)} members{run_label(per_model[model_name])})"
+            )
             st.plotly_chart(member_plume_fig(m_members, m_mean), use_container_width=True)
 
         st.caption(
