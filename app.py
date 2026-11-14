@@ -2115,21 +2115,43 @@ elif analysis_mode == "Medium-Range Forecast":
     FONT_CUMULATIVE_CHART = 12  # text on the cumulative line chart
     # ======================================================================
 
+    # Phone-friendly layout: smaller margins, legend under the line chart, no
+    # numbers or colorbar on the member matrices. Streamlit cannot tell the
+    # screen width, so this is a switch the viewer turns on.
+    def looks_like_phone():
+        """True when the browser's User-Agent says phone. Needs Streamlit 1.37+;
+        on older versions, or if the header is missing, the switch starts off."""
+        try:
+            ua = (st.context.headers.get("User-Agent") or "").lower()
+        except Exception:  # noqa: BLE001 - older Streamlit or no header
+            return False
+        return any(k in ua for k in ("iphone", "android", "mobile", "ipod"))
+
+    PHONE_VIEW = st.toggle(
+        "Phone-friendly charts",
+        value=looks_like_phone(),
+        key="fc_phone_view",
+        help="Compact layout for narrow screens, switched on automatically on "
+             "phones. Tap a cell in the member matrices to see its value.",
+    )
+
     def member_plume_fig(members, means):
         return forecast.fig_member_plume(
             members, means,
             member_font=FONT_MEMBER_CELLS, mean_font=FONT_MEAN_CELLS,
             label_font=FONT_MEMBER_LABELS, date_font=FONT_DATE_LABELS,
-            colorbar_font=FONT_COLORBAR,
+            colorbar_font=FONT_COLORBAR, compact=PHONE_VIEW,
         )
 
     def cumulative_fig(summary, mean_label="Mean"):
         return forecast.fig_cumulative(summary, mean_label=mean_label,
-                                       font_size=FONT_CUMULATIVE_CHART)
+                                       font_size=FONT_CUMULATIVE_CHART,
+                                       compact=PHONE_VIEW)
 
     def daily_matrix_fig(matrix, use_chance, threshold_in):
         return forecast.fig_daily_matrix(matrix, use_chance, threshold_in,
-                                         font_size=FONT_DAILY_MATRIX)
+                                         font_size=FONT_DAILY_MATRIX,
+                                         compact=PHONE_VIEW)
 
     def inferred_init(end_local):
         """Model run time (UTC), worked back 360 hours from the last data hour.
@@ -2459,6 +2481,7 @@ elif analysis_mode == "Medium-Range Forecast":
             forecast.fig_mean_strip(
                 blend_mean, mean_font=FONT_MEAN_CELLS, label_font=FONT_MEMBER_LABELS,
                 date_font=FONT_DATE_LABELS, colorbar_font=FONT_COLORBAR,
+                compact=PHONE_VIEW,
             ),
             use_container_width=True,
         )

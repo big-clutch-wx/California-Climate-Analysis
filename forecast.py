@@ -517,7 +517,7 @@ def blend_member_matrix(blend, cumulative=False, per_model=None):
 # Text sizes are arguments with defaults. The app passes its own values from the
 # TEXT SIZES block in app.py, so change them there.
 
-def fig_cumulative(summary, mean_label="Mean", font_size=12):
+def fig_cumulative(summary, mean_label="Mean", font_size=12, compact=False):
     """Cumulative line chart: 10th-90th band, median and mean."""
     import plotly.graph_objects as go
     fig = go.Figure()
@@ -543,6 +543,16 @@ def fig_cumulative(summary, mean_label="Mean", font_size=12):
         name=mean_label, line={"width": 2, "dash": "dash"},
         hovertemplate=mean_label + ": %{y:.2f} in<extra></extra>",
     ))
+    if compact:
+        # Phone: legend under the chart so the plot gets the full width.
+        fig.update_layout(
+            yaxis_title="Cumulative (in)", xaxis_title=None,
+            hovermode="x unified", height=340,
+            margin={"t": 10, "l": 48, "r": 10, "b": 10},
+            font={"size": min(font_size, 11)},
+            legend={"orientation": "h", "x": 0, "y": -0.22},
+        )
+        return fig
     fig.update_layout(
         yaxis_title="Cumulative precipitation (in)",
         xaxis_title="Date",
@@ -554,10 +564,12 @@ def fig_cumulative(summary, mean_label="Mean", font_size=12):
     return fig
 
 
-def fig_daily_matrix(matrix, use_chance, threshold_in, font_size=12):
+def fig_daily_matrix(matrix, use_chance, threshold_in, font_size=12, compact=False):
     """Heatmap of chance of rain (percent) or median daily total (inches)."""
     import plotly.graph_objects as go
     day_labels = [d.strftime("%a %b %d") for d in matrix.columns]
+    if compact:
+        font_size = min(font_size, 9)
     fig = go.Figure(go.Heatmap(
         z=matrix.values, x=day_labels, y=list(matrix.index),
         colorscale="Blues", zmin=0, zmax=100 if use_chance else None,
@@ -571,7 +583,19 @@ def fig_daily_matrix(matrix, use_chance, threshold_in, font_size=12):
             + "<extra></extra>"
         ),
         colorbar={"title": "%" if use_chance else "in"},
+        showscale=not compact,
     ))
+    if compact:
+        fig.update_layout(
+            height=max(110, 40 * len(matrix.index) + 60),
+            margin={"t": 10, "b": 5, "l": 78, "r": 5},
+            xaxis={"side": "top", "tickmode": "array", "tickvals": day_labels,
+                   "ticktext": [f"{d:%a}<br>{d.day}" for d in matrix.columns],
+                   "tickfont": {"size": 9}},
+            yaxis={"autorange": "reversed", "tickfont": {"size": 9}},
+            font={"size": font_size},
+        )
+        return fig
     fig.update_layout(
         height=max(190, 46 * len(matrix.index) + 90),
         margin={"t": 10, "b": 10},
@@ -587,7 +611,8 @@ def _plume_fmt(v):
     return f"{v:.2f}".rstrip("0").rstrip(".") if v < 10 else f"{v:.1f}"
 
 
-def _plume_traces(frame, days, yaxis_id, show_scale, cell_font, colorbar_font):
+def _plume_traces(frame, days, yaxis_id, show_scale, cell_font, colorbar_font,
+                  show_text=True):
     """Heatmap plus a white-text overlay for dark cells, for one panel."""
     import plotly.graph_objects as go
     nb = len(PLUME_COLORS)
@@ -598,6 +623,9 @@ def _plume_traces(frame, days, yaxis_id, show_scale, cell_font, colorbar_font):
     bins[missing] = np.nan
     light = plume_text_is_light(plume_bin(safe)) & ~missing
     txt = np.vectorize(_plume_fmt)(safe).astype(object)
+    if not show_text:
+        txt = np.full(txt.shape, "", dtype=object)
+        light = np.zeros_like(light, dtype=bool)
     heat = go.Heatmap(
         z=bins, x=days, y=list(frame.index),
         colorscale=plume_colorscale(), zmin=-0.5, zmax=nb - 0.5,
@@ -624,10 +652,16 @@ def _plume_traces(frame, days, yaxis_id, show_scale, cell_font, colorbar_font):
 # Same left and right margins on every plume figure, so the date columns line up
 # from one figure to the next.
 _PLUME_MARGIN = {"l": 90, "r": 90}
+_PLUME_MARGIN_COMPACT = {"l": 46, "r": 4}
+
+
+def _short_days(columns):
+    """Two-line day labels (weekday over day number) for narrow screens."""
+    return [f"{d:%a}<br>{d.day}" for d in columns]
 
 
 def fig_member_plume(members, means, member_font=9, mean_font=14, label_font=9,
-                     date_font=12, colorbar_font=8, show_scale=True):
+                     date_font=12, colorbar_font=8, show_scale=True, compact=False):
     """Plume matrix: one row per member and a mean panel underneath.
 
     members, means: DataFrames of inches with date columns; row labels are
@@ -636,6 +670,34 @@ def fig_member_plume(members, means, member_font=9, mean_font=14, label_font=9,
     import plotly.graph_objects as go
     days = [d.strftime("%a %b %d") for d in members.columns]
     fig = go.Figure()
+    if compact:
+        # Phone: no numbers inside the member cells (tap a cell for its value),
+        # no colorbar, thinner rows, fewer row labels, short date labels.
+        for tr in _plume_traces(members, days, "y", False, member_font, colorbar_font,
+                                show_text=False):
+            fig.add_trace(tr)
+        for tr in _plume_traces(means, days, "y2", False, min(mean_font, 9), colorbar_font):
+            fig.add_trace(tr)
+        main_px, mean_px = 9 * len(members), 40 * len(means)
+        gap_px, top_px, bottom_px = 18, 36, 10
+        plot_h = main_px + gap_px + mean_px
+        keep = [name for i, name in enumerate(members.index) if i % 8 == 0]
+        fig.update_layout(
+            height=plot_h + top_px + bottom_px,
+            margin={"t": top_px, "b": bottom_px, **_PLUME_MARGIN_COMPACT},
+            plot_bgcolor="white",
+            xaxis={"side": "top", "type": "category", "tickmode": "array",
+                   "tickvals": days, "ticktext": _short_days(members.columns),
+                   "tickfont": {"size": 9}},
+            yaxis={"domain": [(mean_px + gap_px) / plot_h, 1.0], "autorange": "reversed",
+                   "type": "category", "tickfont": {"size": 8},
+                   "tickmode": "array", "tickvals": keep, "ticktext": keep},
+            yaxis2={"domain": [0.0, mean_px / plot_h], "autorange": "reversed",
+                    "type": "category", "anchor": "x", "tickmode": "array",
+                    "tickfont": {"size": 8},
+                    "tickvals": list(means.index), "ticktext": list(means.index)},
+        )
+        return fig
     for tr in _plume_traces(members, days, "y", show_scale, member_font, colorbar_font):
         fig.add_trace(tr)
     for tr in _plume_traces(means, days, "y2", False, mean_font, colorbar_font):
@@ -662,11 +724,27 @@ def fig_member_plume(members, means, member_font=9, mean_font=14, label_font=9,
     return fig
 
 
-def fig_mean_strip(means, mean_font=14, label_font=9, date_font=12, colorbar_font=8):
+def fig_mean_strip(means, mean_font=14, label_font=9, date_font=12, colorbar_font=8,
+                   compact=False):
     """A mean-only plume strip (for the blend mean above the member matrices)."""
     import plotly.graph_objects as go
     days = [d.strftime("%a %b %d") for d in means.columns]
     fig = go.Figure()
+    if compact:
+        for tr in _plume_traces(means, days, "y", False, min(mean_font, 9), colorbar_font):
+            fig.add_trace(tr)
+        fig.update_layout(
+            height=40 * len(means) + 46,
+            margin={"t": 36, "b": 10, **_PLUME_MARGIN_COMPACT},
+            plot_bgcolor="white",
+            xaxis={"side": "top", "type": "category", "tickmode": "array",
+                   "tickvals": days, "ticktext": _short_days(means.columns),
+                   "tickfont": {"size": 9}},
+            yaxis={"autorange": "reversed", "type": "category", "tickmode": "array",
+                   "tickfont": {"size": 8},
+                   "tickvals": list(means.index), "ticktext": list(means.index)},
+        )
+        return fig
     for tr in _plume_traces(means, days, "y", False, mean_font, colorbar_font):
         fig.add_trace(tr)
     row_px = 56
