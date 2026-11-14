@@ -29,11 +29,25 @@ import streamlit as st
 # Page configuration
 # ---------------------------------------------------------------------------
 
+from pathlib import Path as _Path
+
+_ASSETS = _Path(__file__).parent / "assets"
+_FAVICON = _ASSETS / "favicon_64.png"
+
 st.set_page_config(
     page_title="California Precipitation Analysis",
+    page_icon=str(_FAVICON) if _FAVICON.exists() else None,
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# Logo above the sidebar (the mark works on light and dark themes). Needs a
+# recent Streamlit; older versions simply skip it.
+try:
+    if (_ASSETS / "logo_512.png").exists():
+        st.logo(str(_ASSETS / "logo_512.png"), size="large")
+except Exception:  # noqa: BLE001 - never let branding stop the app
+    pass
 
 
 # ---------------------------------------------------------------------------
