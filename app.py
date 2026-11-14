@@ -2548,22 +2548,40 @@ elif analysis_mode == "Medium-Range Forecast":
         elif trend_data is None:
             st.info(f"No run history has been saved for {choice} yet.")
         else:
-            span = st.radio("Total over", ["Next 3 days", "Next 5 days", "Next 7 days", "Next 10 days",
-                             "Next 14 days"],
-                            index=2, horizontal=True, key="fc_trend_span")
-            n_days = min(int(span.split()[1]), blend["date"].nunique())
+            tc1, tc2 = st.columns([3, 2])
+            span = tc1.radio(
+                "Total over",
+                ["Next 3 days", "Next 5 days", "Next 7 days", "Next 10 days", "Next 14 days"],
+                index=2, horizontal=True, key="fc_trend_span",
+            )
+            window_kind = tc2.radio(
+                "Window",
+                ["Each run's own days", "Same dates for every run"],
+                horizontal=True, key="fc_trend_window",
+            )
+            rolling = window_kind.startswith("Each")
+            n_days = int(span.split()[1])
             window_start = blend["date"].min()
             window_end = window_start + pd.Timedelta(days=n_days - 1)
-            series = forecast.trend_series(trend_data, window_start, n_days)
+            series = forecast.trend_series(trend_data, window_start, n_days, rolling=rolling)
             if all(df.empty for df in series["models"].values()):
                 st.info("No saved run covers this whole window yet.")
             else:
-                st.caption(
-                    f"Total precipitation for {window_start.strftime('%b %d')} to "
-                    f"{window_end.strftime('%b %d')} as forecast by each run. Each point "
-                    "is one model run; the blend uses each model's newest run at that "
-                    "time. A run only appears if it covers the whole window."
-                )
+                if rolling:
+                    st.caption(
+                        f"Total precipitation over each run's own first {n_days} days "
+                        "(from its first complete Pacific-time day). Each point is one "
+                        "model run; the blend uses each model's newest run at that time. "
+                        "The window moves forward a few hours with each run, so part of "
+                        "a change can come from the days that entered or left it."
+                    )
+                else:
+                    st.caption(
+                        f"Total precipitation for {window_start.strftime('%b %d')} to "
+                        f"{window_end.strftime('%b %d')} as forecast by each run. Each "
+                        "point is one model run; the blend uses each model's newest run "
+                        "at that time. A run only appears if it covers the whole window."
+                    )
                 st.plotly_chart(
                     forecast.fig_trend(series, span, font_size=FONT_CUMULATIVE_CHART,
                                        compact=PHONE_VIEW),

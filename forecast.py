@@ -782,12 +782,17 @@ def load_trend(name):
     return resp.json()
 
 
-def trend_series(trend, start, n_days):
-    """Window totals (in) per run for the days start .. start + n_days - 1.
+def trend_series(trend, start, n_days, rolling=True):
+    """Window totals (in) per run.
+
+    rolling=True: each run's own first n_days complete Pacific days, so every run
+    gets a full n_days total (the window moves forward a little with each run).
+    rolling=False: the same calendar days start .. start + n_days - 1 for every
+    run, and a run only counts when it covers the whole window.
 
     Returns {"models": {name: DataFrame[init, total]}, "blend": DataFrame[init, total]}.
-    A run only counts when it has every day of the window. The blend at a given
-    time averages the three models' newest runs at that time, like the live blend.
+    The blend at a given time averages the three models' newest runs at that time,
+    like the live blend.
     """
     need = [(pd.Timestamp(start) + pd.Timedelta(days=i)).strftime("%Y-%m-%d")
             for i in range(n_days)]
@@ -796,8 +801,12 @@ def trend_series(trend, start, n_days):
         rows = []
         for run in trend.get("runs", {}).get(model, []):
             init = pd.Timestamp(run["init"]).tz_localize(None)
-            lookup = dict(zip(run["dates"], run["mean_in"]))
-            total = sum(lookup[d] for d in need) if all(d in lookup for d in need) else None
+            if rolling:
+                vals = run["mean_in"][:n_days]
+                total = sum(vals) if len(vals) >= n_days else None
+            else:
+                lookup = dict(zip(run["dates"], run["mean_in"]))
+                total = sum(lookup[d] for d in need) if all(d in lookup for d in need) else None
             rows.append((init, total))
         per_model[model] = sorted(rows)
 
