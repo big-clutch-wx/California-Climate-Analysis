@@ -2548,7 +2548,8 @@ elif analysis_mode == "Medium-Range Forecast":
         elif trend_data is None:
             st.info(f"No run history has been saved for {choice} yet.")
         else:
-            span = st.radio("Total over", ["Next 3 days", "Next 5 days", "Next 7 days", "Next 10 days"],
+            span = st.radio("Total over", ["Next 3 days", "Next 5 days", "Next 7 days", "Next 10 days",
+                             "Next 14 days"],
                             index=2, horizontal=True, key="fc_trend_span")
             n_days = min(int(span.split()[1]), blend["date"].nunique())
             window_start = blend["date"].min()
@@ -2569,7 +2570,21 @@ elif analysis_mode == "Medium-Range Forecast":
                     use_container_width=True,
                 )
                 tsum = forecast.trend_summary(series)
-                st.dataframe(tsum, use_container_width=True, hide_index=True)
+                tshow = tsum.copy()
+                tshow["Total (in)"] = tshow["Total (in)"].map(lambda v: f"{v:.2f}")
+                for col in ("vs previous run", "vs ~24 h earlier", "vs oldest kept"):
+                    tshow[col] = tshow[col].map(lambda v: "–" if pd.isna(v) else f"{v:+.2f}")
+                st.dataframe(tshow, use_container_width=True, hide_index=True)
+                saved_runs = sum(len(trend_data.get("runs", {}).get(m, []))
+                                 for m in forecast.TREND_MODELS)
+                shown_runs = sum(len(df) for df in series["models"].values())
+                if shown_runs < saved_runs:
+                    st.caption(
+                        f"{shown_runs} of {saved_runs} saved runs reach the end of this "
+                        "window. Each run stops 15 days after it starts, so older runs "
+                        "fall short of the later days, and the longer the window the "
+                        "fewer older runs qualify."
+                    )
                 st.caption(
                     "Changes are in inches: positive means the latest run is wetter. "
                     "History keeps the last 12 runs for WN2 and AIFS-ENS and the last 6 "
