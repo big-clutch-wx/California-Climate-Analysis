@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 256" width="1240" height="256">
+  <g transform="scale(0.5)"><defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#17476b"/>
+      <stop offset="1" stop-color="#0b2540"/>
+    </linearGradient>
+    <linearGradient id="drop" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8fe3f2"/>
+      <stop offset="1" stop-color="#2fb4d4"/>
+    </linearGradient>
+    <clipPath id="clip"><rect width="512" height="512" rx="112"/></clipPath>
+  </defs>
+  <g clip-path="url(#clip)">
+    <rect width="512" height="512" fill="url(#bg)"/>
+    <!-- far ridge -->
+    <path d="M-10 420 L92 318 L158 372 L236 262 L330 358 L402 300 L522 410 L522 522 L-10 522 Z" fill="#5f8fb3"/>
+    <!-- near ridge, Sierra-style twin peaks -->
+    <path d="M-10 470 L118 350 L176 404 L262 296 L344 392 L398 346 L522 464 L522 522 L-10 522 Z" fill="#eef6fb"/>
+    <!-- snow shadow line -->
+    <path d="M262 296 L300 352 L270 346 L244 372 L224 330 Z" fill="#cfe3ef"/>
+    <!-- raindrop -->
+    <path d="M256 70 C256 70 190 146 190 196 A66 66 0 0 0 322 196 C322 146 256 70 256 70 Z" fill="url(#drop)"/>
+    <path d="M232 190 C232 168 244 150 256 136" fill="none" stroke="#ffffff" stroke-opacity=".55" stroke-width="10" stroke-linecap="round"/>
+  </g>
+</g>
+  <text x="290" y="130" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="90" font-weight="700" fill="#ffffff" letter-spacing="-1">California Climate</text>
+  <text x="294" y="190" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="38" font-weight="500" fill="#8fb8d3" letter-spacing="6">PRECIPITATION  ANALYSIS</text>
+</svg>
