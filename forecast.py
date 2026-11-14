@@ -759,3 +759,124 @@ def fig_mean_strip(means, mean_font=14, label_font=9, date_font=12, colorbar_fon
                "tickvals": list(means.index), "ticktext": list(means.index)},
     )
     return fig
+
+
+# ---------------------------------------------------------------------------
+# Forecast trend: how each model's (and the blend's) total changed from run to run
+# History files are written by the wn2_job in the cawn2 bucket, per preset city.
+# ---------------------------------------------------------------------------
+TREND_BASE = CUBE_BASE + "trend/"
+TREND_MODELS = ["WN2", "EPS", "AIFS-ENS"]
+
+
+def trend_slug(name):
+    return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+
+
+def load_trend(name):
+    """Run history for a preset city, or None when none has been saved."""
+    resp = requests.get(TREND_BASE + trend_slug(name) + ".json", timeout=20)
+    if resp.status_code in (403, 404):
+        return None
+    resp.raise_for_status()
+    return resp.json()
+
+
+def trend_series(trend, start, n_days):
+    """Window totals (in) per run for the days start .. start + n_days - 1.
+
+    Returns {"models": {name: DataFrame[init, total]}, "blend": DataFrame[init, total]}.
+    A run only counts when it has every day of the window. The blend at a given
+    time averages the three models' newest runs at that time, like the live blend.
+    """
+    need = [(pd.Timestamp(start) + pd.Timedelta(days=i)).strftime("%Y-%m-%d")
+            for i in range(n_days)]
+    per_model = {}                       # model -> list of (init, total or None)
+    for model in TREND_MODELS:
+        rows = []
+        for run in trend.get("runs", {}).get(model, []):
+            init = pd.Timestamp(run["init"]).tz_localize(None)
+            lookup = dict(zip(run["dates"], run["mean_in"]))
+            total = sum(lookup[d] for d in need) if all(d in lookup for d in need) else None
+            rows.append((init, total))
+        per_model[model] = sorted(rows)
+
+    models = {
+        m: pd.DataFrame([(i, t) for i, t in rows if t is not None], columns=["init", "total"])
+        for m, rows in per_model.items()
+    }
+    inits = sorted({i for rows in per_model.values() for i, _ in rows})
+    blend_rows = []
+    for t in inits:
+        vals = []
+        for rows in per_model.values():
+            prior = [(i, v) for i, v in rows if i <= t]
+            if not prior or prior[-1][1] is None:
+                break
+            vals.append(prior[-1][1])
+        else:
+            blend_rows.append((t, float(np.mean(vals))))
+    return {"models": models, "blend": pd.DataFrame(blend_rows, columns=["init", "total"])}
+
+
+def trend_summary(series):
+    """Table of latest total and its change versus earlier runs, one row per line."""
+    lines = {**series["models"], "Blend": series["blend"]}
+    out = []
+    for name, df in lines.items():
+        if df.empty:
+            continue
+        df = df.sort_values("init")
+        latest = df.iloc[-1]
+
+        def delta(target):
+            if target is None:
+                return np.nan
+            return latest["total"] - target["total"]
+
+        prev = df.iloc[-2] if len(df) > 1 else None
+        day_ago = df[df["init"] <= latest["init"] - pd.Timedelta(hours=23)]
+        day_ago = day_ago.iloc[-1] if len(day_ago) else None
+        oldest = df.iloc[0] if len(df) > 1 else None
+        out.append({
+            "Model": name,
+            "Latest run": f"{latest['init']:%b} {latest['init'].day} {latest['init']:%H}z",
+            "Total (in)": round(latest["total"], 2),
+            "vs previous run": round(delta(prev), 2) if prev is not None else np.nan,
+            "vs ~24 h earlier": round(delta(day_ago), 2) if day_ago is not None else np.nan,
+            "vs oldest kept": round(delta(oldest), 2) if oldest is not None else np.nan,
+            "Runs": len(df),
+        })
+    return pd.DataFrame(out)
+
+
+def fig_trend(series, window_label, font_size=12, compact=False):
+    """Window total versus run time, one line per model plus the blend."""
+    import plotly.graph_objects as go
+    fig = go.Figure()
+    for name, df in series["models"].items():
+        if df.empty:
+            continue
+        fig.add_trace(go.Scatter(
+            x=df["init"], y=df["total"], mode="lines+markers", name=name,
+            line={"width": 1.5}, marker={"size": 6},
+            hovertemplate=name + " · %{x|%b %-d %Hz}: %{y:.2f} in<extra></extra>",
+        ))
+    b = series["blend"]
+    if not b.empty:
+        fig.add_trace(go.Scatter(
+            x=b["init"], y=b["total"], mode="lines+markers", name="Blend",
+            line={"width": 3.5, "color": "#d62728"}, marker={"size": 8, "color": "#d62728"},
+            hovertemplate="Blend · %{x|%b %-d %Hz}: %{y:.2f} in<extra></extra>",
+        ))
+    fig.update_layout(
+        yaxis_title=f"{window_label} total (in)" if not compact else "Total (in)",
+        xaxis_title="Model run (UTC)" if not compact else None,
+        xaxis={"tickformat": "%b %-d<br>%Hz"},
+        hovermode="closest",
+        height=340 if compact else 420,
+        margin={"t": 10, "l": 48 if compact else 60, "r": 10},
+        font={"size": min(font_size, 11) if compact else font_size},
+        legend={"orientation": "h", "x": 0, "y": -0.25} if compact else {},
+    )
+    return fig

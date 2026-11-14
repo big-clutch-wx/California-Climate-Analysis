@@ -1707,9 +1707,13 @@ if analysis_mode == "Comparison Mode":
                 for region in hydrological_regions
             }
 
+            # Distinct Custom Date Ranges has no % Avg and no normal line, so the
+            # 1991-2020 normals are not computed for that mode.
+            is_custom_ranges = comparison_mode == "Distinct Custom Date Ranges"
+
             regional_period_normals = {}
             for region, scope_ids in regional_scope_ids.items():
-                if scope_ids:
+                if scope_ids and not is_custom_ranges:
                     regional_period_normals[region], _ = get_period_normal_map(
                         scope_ids, period_specs, scope_key=region
                     )
@@ -1731,7 +1735,8 @@ if analysis_mode == "Comparison Mode":
                 )
 
             statewide_period_normals = {}
-            if california_selected and statewide_df is not None and not statewide_df.empty:
+            if (california_selected and not is_custom_ranges
+                    and statewide_df is not None and not statewide_df.empty):
                 statewide_period_normals, _ = get_period_normal_map(
                     tuple(statewide_ids),
                     period_specs,
@@ -1747,10 +1752,11 @@ if analysis_mode == "Comparison Mode":
             )
 
             st.header("Regional Comparison Summary Table")
-            st.caption(
-                "% Avg compares each period with its 1991–2020 station-network normal "
-                "for the same calendar span; Water Years use the full WY normal."
-            )
+            if not is_custom_ranges:
+                st.caption(
+                    "% Avg compares each period with its 1991–2020 station-network normal "
+                    "for the same calendar span; Water Years use the full WY normal."
+                )
 
             # California is a separate statewide scope and is always shown
             # first when selected. It does not consume stations from the
@@ -1776,16 +1782,21 @@ if analysis_mode == "Comparison Mode":
                 else:
                     ca_station_count = int(statewide_df["station_id"].nunique())
                     st.subheader(f"California ({ca_station_count} stations)")
-                    ca_table = ca_summary[
-                        ["period_label", "avg_precip", "pct_base"]
-                    ].copy()
-                    ca_table.columns = ["Period", "Avg Precip", "% Avg"]
+                    if is_custom_ranges:
+                        ca_table = ca_summary[["period_label", "avg_precip"]].copy()
+                        ca_table.columns = ["Period", "Avg Precip"]
+                    else:
+                        ca_table = ca_summary[
+                            ["period_label", "avg_precip", "pct_base"]
+                        ].copy()
+                        ca_table.columns = ["Period", "Avg Precip", "% Avg"]
                     ca_table["Avg Precip"] = ca_table["Avg Precip"].map(
                         lambda x: f'{x:.2f}"'
                     )
-                    ca_table["% Avg"] = ca_table["% Avg"].map(
-                        lambda x: f"{x:.1f}%"
-                    )
+                    if "% Avg" in ca_table.columns:
+                        ca_table["% Avg"] = ca_table["% Avg"].map(
+                            lambda x: f"{x:.1f}%"
+                        )
                     st.dataframe(
                         ca_table,
                         use_container_width=True,
@@ -1807,9 +1818,9 @@ if analysis_mode == "Comparison Mode":
                 if comparison_mode == "Distinct Custom Date Ranges":
                     st.subheader(region)
                     table = region_data[
-                        ["period_label", "avg_precip", "pct_base", "station_count"]
+                        ["period_label", "avg_precip", "station_count"]
                     ].copy()
-                    table.columns = ["Period", "Avg Precip", "% Avg", "Stations"]
+                    table.columns = ["Period", "Avg Precip", "Stations"]
                 else:
                     station_count = int(region_data["station_count"].iloc[0])
                     st.subheader(f"{region} ({station_count} stations)")
@@ -1821,9 +1832,10 @@ if analysis_mode == "Comparison Mode":
                 table["Avg Precip"] = table["Avg Precip"].map(
                     lambda x: f'{x:.2f}"'
                 )
-                table["% Avg"] = table["% Avg"].map(
-                    lambda x: f"{x:.1f}%"
-                )
+                if "% Avg" in table.columns:
+                    table["% Avg"] = table["% Avg"].map(
+                        lambda x: f"{x:.1f}%"
+                    )
 
                 st.dataframe(
                     table,
@@ -1877,7 +1889,7 @@ if analysis_mode == "Comparison Mode":
                     daily_chart_df,
                     region_ids,
                     f"{region} — Daily Precipitation Accumulation",
-                    show_normal=True,
+                    show_normal=not is_custom_ranges,
                     normal_station_ids=normal_ids,
                     scope_key=region,
                 )
@@ -1920,9 +1932,10 @@ if analysis_mode == "Comparison Mode":
                     index="region",
                     columns="period_label",
                     values="pct_base",
-                )
+                ) if not is_custom_ranges else None
 
-                if california_selected and statewide_df is not None and not statewide_df.empty:
+                if (pct_matrix is not None and california_selected
+                        and statewide_df is not None and not statewide_df.empty):
                     ca_avg = statewide_df.groupby("period_label")["total_precip"].mean()
                     pct_matrix.loc["California"] = pd.Series({
                         label: (
@@ -1933,21 +1946,22 @@ if analysis_mode == "Comparison Mode":
                         for label in ca_avg.index
                     })
 
-                if "California" in pct_matrix.index:
-                    ordered = ["California"] + [
-                        r for r in pct_matrix.index if r != "California"
-                    ]
-                    pct_matrix = pct_matrix.reindex(ordered)
+                if pct_matrix is not None:
+                    if "California" in pct_matrix.index:
+                        ordered = ["California"] + [
+                            r for r in pct_matrix.index if r != "California"
+                        ]
+                        pct_matrix = pct_matrix.reindex(ordered)
 
-                st.subheader("Side-by-Side % Avg Matrix")
-                st.dataframe(
-                    pct_matrix.round(1),
-                    use_container_width=True,
-                    column_config={
-                        col: st.column_config.NumberColumn(col, format="%.1f%%")
-                        for col in pct_matrix.columns
-                    },
-                )
+                    st.subheader("Side-by-Side % Avg Matrix")
+                    st.dataframe(
+                        pct_matrix.round(1),
+                        use_container_width=True,
+                        column_config={
+                            col: st.column_config.NumberColumn(col, format="%.1f%%")
+                            for col in pct_matrix.columns
+                        },
+                    )
 
             # ---------------------------------------------------------------
             # Detailed station breakdown
@@ -2347,6 +2361,7 @@ elif analysis_mode == "Medium-Range Forecast":
             "Crescent City": (41.76, -124.20),
             "Eureka": (40.80, -124.16),
             "Fresno": (36.74, -119.79),
+            "La Porte": (39.70, -120.98),
             "Lodgepole": (36.60, -118.72),
             "Los Angeles": (34.05, -118.24),
             "Mammoth Lakes": (37.65, -118.97),
@@ -2369,6 +2384,7 @@ elif analysis_mode == "Medium-Range Forecast":
             "San Luis Obispo": (35.28, -120.66),
             "Santa Barbara": (34.42, -119.70),
             "Santa Rosa": (38.44, -122.71),
+            "Shelter Cove": (40.03, -124.07),
             "Soda Springs": (39.32, -120.38),
             "Sonora": (37.98, -120.38),
             "South Lake Tahoe": (38.94, -119.98),
@@ -2510,6 +2526,56 @@ elif analysis_mode == "Medium-Range Forecast":
             mime="text/csv",
             key="fc_member_csv_point",
         )
+
+        # ------------------------------------------------------------------
+        # Forecast trend: this location's total for a fixed window, run by run.
+        # ------------------------------------------------------------------
+        st.subheader("Forecast trend")
+
+        @st.cache_data(ttl=300, show_spinner=False)
+        def cached_trend(name):
+            return forecast.load_trend(name)
+
+        trend_data = None
+        if choice != "Custom lat/lon":
+            try:
+                trend_data = cached_trend(choice)
+            except Exception as exc:  # noqa: BLE001
+                st.warning(f"Run history could not be loaded: {exc}")
+        if choice == "Custom lat/lon":
+            st.info("Run history is saved for the preset cities only. Pick a preset "
+                    "to see how its forecast has changed from run to run.")
+        elif trend_data is None:
+            st.info(f"No run history has been saved for {choice} yet.")
+        else:
+            span = st.radio("Total over", ["Next 3 days", "Next 5 days", "Next 7 days", "Next 10 days"],
+                            index=2, horizontal=True, key="fc_trend_span")
+            n_days = min(int(span.split()[1]), blend["date"].nunique())
+            window_start = blend["date"].min()
+            window_end = window_start + pd.Timedelta(days=n_days - 1)
+            series = forecast.trend_series(trend_data, window_start, n_days)
+            if all(df.empty for df in series["models"].values()):
+                st.info("No saved run covers this whole window yet.")
+            else:
+                st.caption(
+                    f"Total precipitation for {window_start.strftime('%b %d')} to "
+                    f"{window_end.strftime('%b %d')} as forecast by each run. Each point "
+                    "is one model run; the blend uses each model's newest run at that "
+                    "time. A run only appears if it covers the whole window."
+                )
+                st.plotly_chart(
+                    forecast.fig_trend(series, span, font_size=FONT_CUMULATIVE_CHART,
+                                       compact=PHONE_VIEW),
+                    use_container_width=True,
+                )
+                tsum = forecast.trend_summary(series)
+                st.dataframe(tsum, use_container_width=True, hide_index=True)
+                st.caption(
+                    "Changes are in inches: positive means the latest run is wetter. "
+                    "History keeps the last 12 runs for WN2 and AIFS-ENS and the last 6 "
+                    "for EPS (00z and 12z only), so each model covers about three days. "
+                    "Runs fill in from when saving began, so some lines start short."
+                )
 
         st.caption(
             "Skill declines with lead time. Treat later days as a range of possibilities, "
