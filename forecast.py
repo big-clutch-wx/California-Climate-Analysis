@@ -77,10 +77,13 @@ def load_cube(prefix):
     age_h = (pd.Timestamp.now(tz="UTC") - init) / pd.Timedelta(hours=1)
     if age_h > CUBE_MAX_AGE_H:
         raise ValueError(f"published {prefix} run is {age_h:.0f} h old")
-    key = meta["file"]
+    # A forced re-run rewrites the same file name, so key on when it was generated too,
+    # and put that in the URL so a cached copy of the old file is not served.
+    version = str(meta.get("generated_utc", ""))
+    key = meta["file"] + "|" + version
     cached = _CUBE_CACHE.get(prefix)
     if cached is None or cached[0] != key:
-        resp = requests.get(CUBE_BASE + key, timeout=120)
+        resp = requests.get(CUBE_BASE + meta["file"], params={"v": version}, timeout=120)
         resp.raise_for_status()
         with np.load(io.BytesIO(resp.content)) as z:
             cube = {k: z[k] for k in ("precip", "lat", "lon", "lead_hours", "scale")}
