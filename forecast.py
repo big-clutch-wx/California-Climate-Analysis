@@ -115,7 +115,10 @@ def wn2_cube_hourly(points, timezone="America/Los_Angeles", model="WN2"):
     width = np.diff(np.concatenate([[0], lead]))[window_of_hour]
     utc = init + pd.to_timedelta(hours, unit="h")
     local = utc.tz_convert(timezone).tz_localize(None)
-    names = ["precipitation_control"] + [f"precipitation_member{i:02d}" for i in range(1, n_members)]
+    if meta.get("has_control", True):
+        names = ["precipitation_control"] + [f"precipitation_member{i:02d}" for i in range(1, n_members)]
+    else:                                   # no control run in this feed
+        names = [f"precipitation_member{i:02d}" for i in range(1, n_members + 1)]
 
     frames = []
     for gi, (lat, lon) in enumerate(points):
