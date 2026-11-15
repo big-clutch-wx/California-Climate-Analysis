@@ -741,6 +741,7 @@ mode_choice = st.sidebar.radio(
     [
         "Comparison Mode",
         "Extremes / Records",
+        "Short-Range Forecast (REFS)",
         "Regional Forecast (WN2)",
         "Single-Point Forecast (Model Blend)",
         "Seasonal Forecast (SEAS5)",
@@ -758,6 +759,9 @@ elif mode_choice == "Single-Point Forecast (Model Blend)":
 elif mode_choice == "Seasonal Forecast (SEAS5)":
     analysis_mode = "Seasonal Forecast"
     forecast_mode = None
+elif mode_choice == "Short-Range Forecast (REFS)":
+    analysis_mode = "Short-Range Forecast"
+    forecast_mode = None
 else:
     analysis_mode = mode_choice
     forecast_mode = None
@@ -768,12 +772,68 @@ if "fc_refresh" not in st.session_state:
     st.session_state["fc_refresh"] = 0
 
 
+def looks_like_phone():
+    """True when the browser's User-Agent says phone. Needs Streamlit 1.37+;
+    on older versions, or if the header is missing, the switch starts off."""
+    try:
+        ua = (st.context.headers.get("User-Agent") or "").lower()
+    except Exception:  # noqa: BLE001 - older Streamlit or no header
+        return False
+    return any(k in ua for k in ("iphone", "android", "mobile", "ipod"))
+
+
 def forecast_refresh_button(key):
     """Update button. Returns the refresh number to put in cache keys."""
     if st.button("Update forecast", key=key,
                  help="Fetch the newest model runs now instead of using cached data."):
         st.session_state["fc_refresh"] += 1
     return st.session_state["fc_refresh"]
+
+
+FORECAST_PRESETS = {
+    "Bakersfield": (35.37, -119.02),
+    "Bear Valley": (38.49, -120.04),
+    "Big Bear City": (34.26, -116.84),
+    "Bishop": (37.36, -118.40),
+    "Blue Canyon": (39.28, -120.71),
+    "Brawley": (32.98, -115.53),
+    "Brookings (OR)": (42.05, -124.28),
+    "Carson City (NV)": (39.16, -119.77),
+    "Crescent City": (41.76, -124.20),
+    "Eureka": (40.80, -124.16),
+    "Fresno": (36.74, -119.79),
+    "La Porte": (39.70, -120.98),
+    "Lodgepole": (36.60, -118.72),
+    "Los Angeles": (34.05, -118.24),
+    "Mammoth Lakes": (37.65, -118.97),
+    "Modesto": (37.64, -121.00),
+    "Monterey": (36.60, -121.89),
+    "Mt Shasta": (41.31, -122.31),
+    "Needles": (34.85, -114.61),
+    "Oroville": (39.51, -121.56),
+    "Oxnard": (34.20, -119.18),
+    "Palm Springs": (33.83, -116.55),
+    "Pollock Pines": (38.76, -120.59),
+    "Redding": (40.59, -122.39),
+    "Reno (NV)": (39.53, -119.81),
+    "Ridgecrest": (35.62, -117.67),
+    "Sacramento": (38.58, -121.49),
+    "San Bernardino": (34.11, -117.29),
+    "San Diego": (32.72, -117.16),
+    "San Francisco": (37.77, -122.42),
+    "San Jose": (37.34, -121.89),
+    "San Luis Obispo": (35.28, -120.66),
+    "Santa Barbara": (34.42, -119.70),
+    "Santa Rosa": (38.44, -122.71),
+    "Shelter Cove": (40.03, -124.07),
+    "Soda Springs": (39.32, -120.38),
+    "Sonora": (37.98, -120.38),
+    "South Lake Tahoe": (38.94, -119.98),
+    "Susanville": (40.42, -120.65),
+    "Ukiah": (39.15, -123.21),
+    "Victorville": (34.54, -117.29),
+    "Yosemite": (37.75, -119.58),
+}
 
 
 if analysis_mode == "Comparison Mode":
@@ -2164,15 +2224,6 @@ elif analysis_mode == "Medium-Range Forecast":
     # Phone-friendly layout: smaller margins, legend under the line chart, no
     # numbers or colorbar on the member matrices. Streamlit cannot tell the
     # screen width, so this is a switch the viewer turns on.
-    def looks_like_phone():
-        """True when the browser's User-Agent says phone. Needs Streamlit 1.37+;
-        on older versions, or if the header is missing, the switch starts off."""
-        try:
-            ua = (st.context.headers.get("User-Agent") or "").lower()
-        except Exception:  # noqa: BLE001 - older Streamlit or no header
-            return False
-        return any(k in ua for k in ("iphone", "android", "mobile", "ipod"))
-
     _tcol, _bcol = st.columns([3, 1])
     with _tcol:
         PHONE_VIEW = st.toggle(
@@ -2386,50 +2437,6 @@ elif analysis_mode == "Medium-Range Forecast":
             "averaged; the band is the weighted 10th to 90th percentile."
         )
 
-        FORECAST_PRESETS = {
-            "Bakersfield": (35.37, -119.02),
-            "Bear Valley": (38.49, -120.04),
-            "Big Bear City": (34.26, -116.84),
-            "Bishop": (37.36, -118.40),
-            "Blue Canyon": (39.28, -120.71),
-            "Brawley": (32.98, -115.53),
-            "Brookings (OR)": (42.05, -124.28),
-            "Carson City (NV)": (39.16, -119.77),
-            "Crescent City": (41.76, -124.20),
-            "Eureka": (40.80, -124.16),
-            "Fresno": (36.74, -119.79),
-            "La Porte": (39.70, -120.98),
-            "Lodgepole": (36.60, -118.72),
-            "Los Angeles": (34.05, -118.24),
-            "Mammoth Lakes": (37.65, -118.97),
-            "Modesto": (37.64, -121.00),
-            "Monterey": (36.60, -121.89),
-            "Mt Shasta": (41.31, -122.31),
-            "Needles": (34.85, -114.61),
-            "Oroville": (39.51, -121.56),
-            "Oxnard": (34.20, -119.18),
-            "Palm Springs": (33.83, -116.55),
-            "Pollock Pines": (38.76, -120.59),
-            "Redding": (40.59, -122.39),
-            "Reno (NV)": (39.53, -119.81),
-            "Ridgecrest": (35.62, -117.67),
-            "Sacramento": (38.58, -121.49),
-            "San Bernardino": (34.11, -117.29),
-            "San Diego": (32.72, -117.16),
-            "San Francisco": (37.77, -122.42),
-            "San Jose": (37.34, -121.89),
-            "San Luis Obispo": (35.28, -120.66),
-            "Santa Barbara": (34.42, -119.70),
-            "Santa Rosa": (38.44, -122.71),
-            "Shelter Cove": (40.03, -124.07),
-            "Soda Springs": (39.32, -120.38),
-            "Sonora": (37.98, -120.38),
-            "South Lake Tahoe": (38.94, -119.98),
-            "Susanville": (40.42, -120.65),
-            "Ukiah": (39.15, -123.21),
-            "Victorville": (34.54, -117.29),
-            "Yosemite": (37.75, -119.58),
-        }
         choices = list(FORECAST_PRESETS) + ["Custom lat/lon"]
         pc1, pc2, pc3 = st.columns([2, 1, 1])
         choice = pc1.selectbox("Location", choices, index=choices.index("Sacramento"), key="sp_location")
@@ -2768,6 +2775,84 @@ elif analysis_mode == "Seasonal Forecast":
                         "% of normal": [f"{v:.0f}%" for v in months["mean_in"] / months["clim_in"] * 100],
                     })
                     st.dataframe(t5, use_container_width=True, hide_index=True)
+
+elif analysis_mode == "Short-Range Forecast":
+
+    try:
+        import forecast
+    except ImportError:
+        st.error("forecast.py is missing from the app folder.")
+        st.stop()
+    if not hasattr(forecast, "refs_point"):
+        st.error("forecast.py is out of date. Replace it with the new version and reboot the app.")
+        st.stop()
+
+    st.header("Short-Range Forecast (NOAA RRFS and REFS)")
+    st.caption(
+        "NOAA's 3 km Rapid Refresh Forecast System for the next 60 hours: the five RRFS "
+        "ensemble members, the RRFS deterministic run, and the REFS ensemble mean (REFS "
+        "combines RRFS and HRRR runs, 14 members). Runs four times a day. Values are the "
+        "model grid cell nearest the point. These models are new and their skill over "
+        "California has not been verified here."
+    )
+    _sr_t, _sr_b = st.columns([3, 1])
+    with _sr_t:
+        sr_phone = st.toggle("Phone-friendly charts", key="sr_phone_view",
+                             value=looks_like_phone())
+    with _sr_b:
+        sr_refresh = forecast_refresh_button("sr_update_btn")
+
+    sr_choices = list(FORECAST_PRESETS) + ["Custom lat/lon"]
+    sc1, sc2, sc3 = st.columns([2, 1, 1])
+    sr_choice = sc1.selectbox("Location", sr_choices, index=sr_choices.index("Sacramento"),
+                              key="sr_location")
+    if sr_choice == "Custom lat/lon":
+        sr_lat = sc2.number_input("Latitude", min_value=32.0, max_value=42.5, value=38.58,
+                                  step=0.01, format="%.2f", key="sr_lat")
+        sr_lon = sc3.number_input("Longitude", min_value=-125.0, max_value=-114.0, value=-121.49,
+                                  step=0.01, format="%.2f", key="sr_lon")
+    else:
+        sr_lat, sr_lon = FORECAST_PRESETS[sr_choice]
+        sc2.text_input("Latitude", f"{sr_lat:.2f}", disabled=True, key="sr_lat_show")
+        sc3.text_input("Longitude", f"{sr_lon:.2f}", disabled=True, key="sr_lon_show")
+    sr_name = sr_choice if sr_choice != "Custom lat/lon" else f"{sr_lat:.2f}, {sr_lon:.2f}"
+
+    @st.cache_data(ttl=1800, show_spinner="Loading the latest RRFS/REFS run...")
+    def cached_refs_point(lat, lon, refresh):
+        df, init, km = forecast.refs_point(lat, lon)
+        return df, init, km
+
+    try:
+        sr_df, sr_init, sr_km = cached_refs_point(round(float(sr_lat), 2), round(float(sr_lon), 2),
+                                                  sr_refresh)
+    except Exception as exc:
+        st.error(f"Short-range data is not available right now: {exc}")
+        st.stop()
+
+    inches = sr_df / 25.4
+    st.subheader(sr_name)
+    st.caption(
+        f"Init {sr_init:%b %d %Hz} · 60 hours · nearest grid cell {sr_km:.1f} km away · "
+        "hour-ending times, Pacific."
+    )
+    totals = inches.sum()
+    members = [c for c in inches.columns if c.startswith("RRFS m")]
+    mcols = st.columns(4)
+    if "REFS mean" in totals:
+        mcols[0].metric("REFS mean, 60 h", f"{totals['REFS mean']:.2f} in")
+    if "RRFS" in totals:
+        mcols[1].metric("RRFS deterministic", f"{totals['RRFS']:.2f} in")
+    if members:
+        mcols[2].metric("RRFS members, low", f"{totals[members].min():.2f} in")
+        mcols[3].metric("RRFS members, high", f"{totals[members].max():.2f} in")
+
+    st.markdown("**Accumulated precipitation**")
+    st.plotly_chart(forecast.fig_sr_cumulative(sr_df, compact=sr_phone), use_container_width=True)
+    st.markdown("**Hourly precipitation**")
+    st.plotly_chart(forecast.fig_sr_hourly(sr_df, compact=sr_phone), use_container_width=True)
+    st.markdown("**Totals by Pacific day (inches)**")
+    st.dataframe(forecast.sr_day_table(sr_df), use_container_width=True)
+    st.caption("* partial day (the run starts or ends partway through it).")
 
 elif analysis_mode == "Extremes / Records":
     st.header("Extremes / Records")

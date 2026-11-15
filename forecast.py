@@ -1111,3 +1111,123 @@ def fig_seas5(months, font_size=12, compact=False):
         legend={"orientation": "h", "x": 0, "y": -0.1},
     )
     return fig
+
+
+# ---------------------------------------------------------------------------
+# Short-range: NOAA RRFS members, RRFS deterministic and REFS statistics (3 km, 60 h)
+# ---------------------------------------------------------------------------
+_REFS_CACHE = {}
+
+
+def load_refs():
+    """Newest published REFS cube: (cube dict, meta). Raises if missing or too old."""
+    meta = requests.get(CUBE_BASE + "refs/latest.json", timeout=20)
+    meta.raise_for_status()
+    meta = meta.json()
+    init = pd.Timestamp(meta["init_utc"]).tz_convert("UTC")
+    age_h = (pd.Timestamp.now(tz="UTC") - init) / pd.Timedelta(hours=1)
+    if age_h > 18:
+        raise ValueError(f"published REFS run is {age_h:.0f} h old")
+    key = meta["file"] + "|" + str(meta.get("generated_utc", ""))
+    if _REFS_CACHE.get("key") != key:
+        resp = requests.get(CUBE_BASE + meta["file"], params={"v": meta.get("generated_utc", "")},
+                            timeout=180)
+        resp.raise_for_status()
+        with np.load(io.BytesIO(resp.content)) as z:
+            cube = {k: z[k] for k in ("precip", "lat", "lon", "lead_hours", "names", "scale")}
+        _REFS_CACHE.clear()
+        _REFS_CACHE.update({"key": key, "cube": cube})
+    return _REFS_CACHE["cube"], meta
+
+
+def refs_point(lat, lon):
+    """Hourly precipitation (mm) at the grid cell nearest the point.
+
+    Returns (DataFrame indexed by valid time in UTC with one column per series,
+             init Timestamp (UTC), distance to the cell in km).
+    """
+    cube, meta = load_refs()
+    glat, glon = cube["lat"].astype("float64"), cube["lon"].astype("float64")
+    kx = np.cos(np.radians(lat))
+    dist2 = ((glat - lat) * 111.0) ** 2 + ((glon - lon) * 111.0 * kx) ** 2
+    iy, ix = np.unravel_index(np.argmin(dist2), dist2.shape)
+    km = float(np.sqrt(dist2[iy, ix]))
+    if km > 6.0:
+        raise ValueError(f"point is {km:.0f} km from the nearest 3 km grid cell (outside the data box)")
+    series = cube["precip"][:, :, iy, ix].astype("float64") / float(cube["scale"])
+    init = pd.Timestamp(meta["init_utc"]).tz_convert("UTC")
+    times = init + pd.to_timedelta(cube["lead_hours"].astype(int), unit="h")
+    df = pd.DataFrame(series.T, index=times, columns=[str(n) for n in cube["names"]])
+    return df, init, km
+
+
+def sr_day_table(df_mm, timezone="America/Los_Angeles"):
+    """Per-Pacific-day totals in inches, one row per series. Partial days are flagged."""
+    local = df_mm.copy()
+    # Index is hour-ending; group by when each hour started so 00:00 closes the previous day.
+    local.index = (local.index - pd.Timedelta(hours=1)).tz_convert(timezone)
+    days = local.groupby(local.index.date)
+    out, labels = {}, []
+    for day, g in days:
+        full = len(g) == 24
+        labels.append(f"{pd.Timestamp(day):%a %b %d}" + ("" if full else "*"))
+        out[labels[-1]] = (g.sum() / MM_PER_INCH).round(2)
+    return pd.DataFrame(out)
+
+
+def fig_sr_cumulative(df_mm, timezone="America/Los_Angeles", font_size=12, compact=False):
+    import plotly.graph_objects as go
+    cum = df_mm.cumsum() / MM_PER_INCH
+    cum.index = cum.index.tz_convert(timezone)
+    fig = go.Figure()
+    for col in [c for c in cum.columns if c.startswith("RRFS m")]:
+        fig.add_trace(go.Scatter(x=cum.index, y=cum[col], mode="lines", name=col,
+                                 line={"width": 1}, opacity=0.55,
+                                 hovertemplate=col + " %{y:.2f} in<extra></extra>"))
+    style = {"RRFS": ("#111111", 2.5, "solid"), "REFS mean": ("#d62728", 3.5, "solid"),
+             "REFS PMM": ("#9467bd", 3, "dash")}
+    for col, (color, w, dash) in style.items():
+        if col in cum.columns:
+            fig.add_trace(go.Scatter(x=cum.index, y=cum[col], mode="lines", name=col,
+                                     line={"width": w, "color": color, "dash": dash},
+                                     hovertemplate=col + " %{y:.2f} in<extra></extra>"))
+    fig.update_layout(
+        height=380 if compact else 480, hovermode="x unified",
+        yaxis_title="Accumulated precipitation (in)",
+        margin={"t": 20, "l": 46 if compact else 60, "r": 10},
+        font={"size": min(font_size, 11) if compact else font_size},
+        legend={"orientation": "h", "x": 0, "y": -0.2},
+    )
+    return fig
+
+
+def fig_sr_hourly(df_mm, timezone="America/Los_Angeles", font_size=12, compact=False):
+    """Hourly amounts: REFS mean bars, member range band, RRFS deterministic line."""
+    import plotly.graph_objects as go
+    inch = df_mm / MM_PER_INCH
+    inch.index = inch.index.tz_convert(timezone)
+    members = [c for c in inch.columns if c.startswith("RRFS m")]
+    fig = go.Figure()
+    if members:
+        fig.add_trace(go.Scatter(x=inch.index, y=inch[members].max(axis=1), mode="lines",
+                                 line={"width": 0}, showlegend=False, hoverinfo="skip"))
+        fig.add_trace(go.Scatter(x=inch.index, y=inch[members].min(axis=1), mode="lines",
+                                 line={"width": 0}, fill="tonexty",
+                                 fillcolor="rgba(120,120,120,0.25)", name="RRFS members (range)",
+                                 hoverinfo="skip"))
+    if "REFS mean" in inch:
+        fig.add_trace(go.Bar(x=inch.index, y=inch["REFS mean"], name="REFS mean",
+                             marker_color="#d62728", opacity=0.75,
+                             hovertemplate="REFS mean %{y:.3f} in<extra></extra>"))
+    if "RRFS" in inch:
+        fig.add_trace(go.Scatter(x=inch.index, y=inch["RRFS"], mode="lines", name="RRFS",
+                                 line={"color": "#111111", "width": 2},
+                                 hovertemplate="RRFS %{y:.3f} in<extra></extra>"))
+    fig.update_layout(
+        height=300 if compact else 360, hovermode="x unified",
+        yaxis_title="Hourly precipitation (in)",
+        margin={"t": 20, "l": 46 if compact else 60, "r": 10},
+        font={"size": min(font_size, 11) if compact else font_size},
+        legend={"orientation": "h", "x": 0, "y": -0.2}, bargap=0.05,
+    )
+    return fig
