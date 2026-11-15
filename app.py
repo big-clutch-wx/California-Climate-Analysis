@@ -762,6 +762,20 @@ else:
     analysis_mode = mode_choice
     forecast_mode = None
 
+# Forecast refresh: bumping this number changes every forecast cache key, so the
+# next run fetches fresh data instead of reusing what was cached.
+if "fc_refresh" not in st.session_state:
+    st.session_state["fc_refresh"] = 0
+
+
+def forecast_refresh_button(key):
+    """Update button. Returns the refresh number to put in cache keys."""
+    if st.button("Update forecast", key=key,
+                 help="Fetch the newest model runs now instead of using cached data."):
+        st.session_state["fc_refresh"] += 1
+    return st.session_state["fc_refresh"]
+
+
 if analysis_mode == "Comparison Mode":
     comparison_mode = st.sidebar.radio(
         "Comparison type:",
@@ -2159,13 +2173,18 @@ elif analysis_mode == "Medium-Range Forecast":
             return False
         return any(k in ua for k in ("iphone", "android", "mobile", "ipod"))
 
-    PHONE_VIEW = st.toggle(
-        "Phone-friendly charts",
-        value=looks_like_phone(),
-        key="fc_phone_view",
-        help="Compact layout for narrow screens, switched on automatically on "
-             "phones. Tap a cell in the member matrices to see its value.",
-    )
+    _tcol, _bcol = st.columns([3, 1])
+    with _tcol:
+        PHONE_VIEW = st.toggle(
+            "Phone-friendly charts",
+            value=looks_like_phone(),
+            key="fc_phone_view",
+            help="Compact layout for narrow screens, switched on automatically on "
+                 "phones. Tap a cell in the member matrices to see its value.",
+        )
+    with _bcol:
+        FC_REFRESH = forecast_refresh_button("fc_update_btn")
+    forecast_day_key = f"{forecast_day_key}|r{FC_REFRESH}"
 
     def member_plume_fig(members, means):
         return forecast.fig_member_plume(
@@ -2551,13 +2570,13 @@ elif analysis_mode == "Medium-Range Forecast":
         st.subheader("Forecast trend")
 
         @st.cache_data(ttl=300, show_spinner=False)
-        def cached_trend(name):
+        def cached_trend(name, refresh):
             return forecast.load_trend(name)
 
         trend_data = None
         if choice != "Custom lat/lon":
             try:
-                trend_data = cached_trend(choice)
+                trend_data = cached_trend(choice, FC_REFRESH)
             except Exception as exc:  # noqa: BLE001
                 st.warning(f"Run history could not be loaded: {exc}")
         if choice == "Custom lat/lon":
@@ -2653,13 +2672,18 @@ elif analysis_mode == "Seasonal Forecast":
         "normal), not for a single location. Normal is the model's own climatology "
         "for the same weeks or months."
     )
-    seas_phone = st.toggle("Phone-friendly charts", key="seas_phone_view", value=False)
+    _stcol, _sbcol = st.columns([3, 1])
+    with _stcol:
+        seas_phone = st.toggle("Phone-friendly charts", key="seas_phone_view", value=False)
+    with _sbcol:
+        _seas_refresh = forecast_refresh_button("seas_update_btn")
     seas_step = st.selectbox(
         "Grid spacing (degrees)", [0.5, 0.25], index=0, key="seas_step",
         help="0.5 degrees is about the model's own resolution and uses the least API quota.",
     )
 
-    seas_day_key = pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d") + f"|{pd.Timestamp.now(tz='UTC').hour // 6}"
+    seas_day_key = (pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d")
+                    + f"|{pd.Timestamp.now(tz='UTC').hour // 6}|r{_seas_refresh}")
 
     @st.cache_data(ttl=6 * 3600, show_spinner="Fetching EC46 ensemble...")
     def cached_ec46(points, day_key):
@@ -2706,8 +2730,8 @@ elif analysis_mode == "Seasonal Forecast":
                         "10th (in)": weeks["p10_in"].round(2).values,
                         "90th (in)": weeks["p90_in"].round(2).values,
                         "Normal (in)": weeks["clim_in"].round(2).values,
-                        "Anomaly (in)": weeks["anom_mean_in"].round(2).values,
-                        "Chance wetter (%)": weeks["chance_wetter"].round(0).values,
+                        "Anomaly (in)": [f"{v:+.2f}" for v in weeks["anom_mean_in"]],
+                        "Chance wetter": [f"{v:.0f}%" for v in weeks["chance_wetter"]],
                         "Open-Meteo weekly mean (in)": weeks["api_mean_in"].round(2).values,
                     })
                     st.dataframe(tbl, use_container_width=True, hide_index=True)
@@ -2740,8 +2764,8 @@ elif analysis_mode == "Seasonal Forecast":
                         "Month": [f"{d:%b %Y}" for d in months.index],
                         "Mean (in)": months["mean_in"].round(2).values,
                         "Normal (in)": months["clim_in"].round(2).values,
-                        "Anomaly (in)": months["anom_in"].round(2).values,
-                        "% of normal": (months["mean_in"] / months["clim_in"] * 100).round(0).values,
+                        "Anomaly (in)": [f"{v:+.2f}" for v in months["anom_in"]],
+                        "% of normal": [f"{v:.0f}%" for v in months["mean_in"] / months["clim_in"] * 100],
                     })
                     st.dataframe(t5, use_container_width=True, hide_index=True)
 
