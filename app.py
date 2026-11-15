@@ -858,7 +858,8 @@ st.sidebar.markdown("---")
 
 st.title("California Precipitation Analysis")
 
-if not selected_regions and forecast_mode != "Single-Point (Model Blend)":
+if (not selected_regions and forecast_mode != "Single-Point (Model Blend)"
+        and analysis_mode != "Short-Range Forecast"):
     st.warning("Select at least one hydrological region.")
     st.stop()
 
