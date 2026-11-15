@@ -59,34 +59,44 @@ def _get_with_retry(params):
 # ---------------------------------------------------------------------------
 CUBE_BASE = "https://storage.googleapis.com/cawn2/"
 CUBE_MAX_AGE_H = 30          # older than this and we fall back to Open-Meteo
-_CUBE_CACHE = {}
+_CUBE_CACHE = {}              # prefix -> (file key, cube)
+CUBE_SOURCES = {
+    # model name: (bucket folder, label shown as the data source)
+    "WN2": ("wn2", "Google WeatherNext 2 (direct)"),
+    "EPS": ("eps", "ECMWF open data (direct)"),
+    "AIFS-ENS": ("aifs", "ECMWF open data (direct)"),
+}
 
 
-def load_wn2_cube():
-    """Newest published WN2 run: (cube dict, meta dict). Raises if missing or too old."""
-    meta = requests.get(CUBE_BASE + "wn2/latest.json", timeout=20)
+def load_cube(prefix):
+    """Newest published run in <prefix>/: (cube dict, meta dict). Raises if missing or too old."""
+    meta = requests.get(CUBE_BASE + prefix + "/latest.json", timeout=20)
     meta.raise_for_status()
     meta = meta.json()
     init = pd.Timestamp(meta["init_utc"]).tz_convert("UTC")
     age_h = (pd.Timestamp.now(tz="UTC") - init) / pd.Timedelta(hours=1)
     if age_h > CUBE_MAX_AGE_H:
-        raise ValueError(f"published WN2 run is {age_h:.0f} h old")
+        raise ValueError(f"published {prefix} run is {age_h:.0f} h old")
     key = meta["file"]
-    if key not in _CUBE_CACHE:
+    cached = _CUBE_CACHE.get(prefix)
+    if cached is None or cached[0] != key:
         resp = requests.get(CUBE_BASE + key, timeout=120)
         resp.raise_for_status()
         with np.load(io.BytesIO(resp.content)) as z:
             cube = {k: z[k] for k in ("precip", "lat", "lon", "lead_hours", "scale")}
-        _CUBE_CACHE.clear()          # keep only the newest run in memory
-        _CUBE_CACHE[key] = cube
-    return _CUBE_CACHE[key], meta
+        _CUBE_CACHE[prefix] = (key, cube)      # keep only the newest run per model
+    return _CUBE_CACHE[prefix][1], meta
+
+
+def load_wn2_cube():
+    return load_cube("wn2")
 
 
 def _nearest(axis, value):
     return int(np.argmin(np.abs(np.asarray(axis, dtype=float) - value)))
 
 
-def wn2_cube_hourly(points, timezone="America/Los_Angeles"):
+def wn2_cube_hourly(points, timezone="America/Los_Angeles", model="WN2"):
     """Hourly member precipitation (mm) for each (lat, lon), from the published run.
 
     Same columns as fetch_daily_precip: member, time (local), grid_index, precip_mm.
@@ -94,7 +104,8 @@ def wn2_cube_hourly(points, timezone="America/Los_Angeles"):
     evenly over its six hours, labelled by the hour's end like Open-Meteo, so the
     rest of the pipeline (24-hour complete-day rule, regional means) is unchanged.
     """
-    cube, meta = load_wn2_cube()
+    prefix, label = CUBE_SOURCES[model]
+    cube, meta = load_cube(prefix)
     init = pd.Timestamp(meta["init_utc"]).tz_convert("UTC")
     scale = float(cube["scale"])
     lead = cube["lead_hours"].astype(int)              # window end, hours after init
@@ -118,7 +129,7 @@ def wn2_cube_hourly(points, timezone="America/Los_Angeles"):
             "precip_mm": hourly.ravel(),
         }))
     out = pd.concat(frames, ignore_index=True)
-    out.attrs["source"] = "Google WeatherNext 2 (direct)"
+    out.attrs["source"] = label
     out.attrs["init_utc"] = str(init)
     return out
 
@@ -381,9 +392,9 @@ def fetch_point_blend(lat, lon, forecast_days=15):
             time.sleep(1.0)
         try:
             raw = None
-            if name == "WN2":
+            if name in CUBE_SOURCES:
                 try:
-                    raw = wn2_cube_hourly([(lat, lon)])
+                    raw = wn2_cube_hourly([(lat, lon)], model=name)
                 except Exception:  # noqa: BLE001 - fall back to Open-Meteo
                     raw = None
             if raw is None:

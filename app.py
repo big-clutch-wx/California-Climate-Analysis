@@ -2481,7 +2481,7 @@ elif analysis_mode == "Medium-Range Forecast":
 
         st.subheader(point_name)
         st.caption(
-            f"Source: {'Google (WN2), Open-Meteo (EPS, AIFS-ENS)' if per_model.get('WN2') is not None and per_model['WN2'].attrs.get('source', '').startswith('Google') else 'Open-Meteo'} · {member_counts} · "
+            f"Source: {', '.join(n + ' ' + df.attrs.get('source', 'Open-Meteo').replace(' (direct)', '').replace('Google WeatherNext 2', 'Google').replace('ECMWF open data', 'ECMWF') + (' direct' if '(direct)' in df.attrs.get('source', '') else '') for n, df in per_model.items())} · {member_counts} · "
             f"Forecast covers {blend['date'].min().strftime('%b %d, %Y')} to "
             f"{blend['date'].max().strftime('%b %d, %Y')} "
             f"({blend['date'].nunique()} days) · "
@@ -2649,8 +2649,8 @@ elif analysis_mode == "Medium-Range Forecast":
 
         st.caption(
             "Skill declines with lead time. Treat later days as a range of possibilities, "
-            "not a single expected total. Data: Open-Meteo (Google WeatherNext 2, "
-            "ECMWF IFS ensemble, ECMWF AIFS ensemble)."
+            "not a single expected total. Data: Google WeatherNext 2 and ECMWF open data, "
+            "with Open-Meteo as backup."
         )
 
 elif analysis_mode == "Seasonal Forecast":
