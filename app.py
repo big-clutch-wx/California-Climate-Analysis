@@ -2481,7 +2481,7 @@ elif analysis_mode == "Medium-Range Forecast":
 
         st.subheader(point_name)
         st.caption(
-            f"Source: {', '.join(n + ' ' + df.attrs.get('source', 'Open-Meteo').replace(' (direct)', '').replace('Google WeatherNext 2', 'Google').replace('ECMWF open data', 'ECMWF') + (' direct' if '(direct)' in df.attrs.get('source', '') else '') for n, df in per_model.items())} · {member_counts} · "
+            f"Source: {', '.join(n + ' ' + df.attrs.get('source', 'Open-Meteo').replace(' (direct)', '').replace('Google WeatherNext 2', 'Google').replace('ECMWF open data', 'ECMWF') for n, df in per_model.items())} · {member_counts} · "
             f"Forecast covers {blend['date'].min().strftime('%b %d, %Y')} to "
             f"{blend['date'].max().strftime('%b %d, %Y')} "
             f"({blend['date'].nunique()} days) · "
