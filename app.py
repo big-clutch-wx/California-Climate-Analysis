@@ -743,6 +743,7 @@ mode_choice = st.sidebar.radio(
         "Extremes / Records",
         "Regional Forecast (WN2)",
         "Single-Point Forecast (Model Blend)",
+        "Seasonal Forecast (SEAS5)",
     ],
     index=0,
 )
@@ -754,6 +755,9 @@ if mode_choice == "Regional Forecast (WN2)":
 elif mode_choice == "Single-Point Forecast (Model Blend)":
     analysis_mode = "Medium-Range Forecast"
     forecast_mode = "Single-Point (Model Blend)"
+elif mode_choice == "Seasonal Forecast (SEAS5)":
+    analysis_mode = "Seasonal Forecast"
+    forecast_mode = None
 else:
     analysis_mode = mode_choice
     forecast_mode = None
@@ -2629,6 +2633,117 @@ elif analysis_mode == "Medium-Range Forecast":
             "not a single expected total. Data: Open-Meteo (Google WeatherNext 2, "
             "ECMWF IFS ensemble, ECMWF AIFS ensemble)."
         )
+
+elif analysis_mode == "Seasonal Forecast":
+
+    try:
+        import forecast
+    except ImportError:
+        st.error("forecast.py is missing from the app folder.")
+        st.stop()
+    if not hasattr(forecast, "fetch_ec46"):
+        st.error("forecast.py is out of date. Replace it with the new version and reboot the app.")
+        st.stop()
+
+    st.header("Seasonal Forecast (ECMWF EC46 and SEAS5)")
+    st.caption(
+        "Extended-range outlooks averaged over the grid cells inside each selected "
+        "hydrological region. The model grid is about 36 km and the output is not "
+        "bias-corrected, so use these for the regional pattern (wetter or drier than "
+        "normal), not for a single location. Normal is the model's own climatology "
+        "for the same weeks or months."
+    )
+    seas_phone = st.toggle("Phone-friendly charts", key="seas_phone_view", value=False)
+    seas_step = st.selectbox(
+        "Grid spacing (degrees)", [0.5, 0.25], index=0, key="seas_step",
+        help="0.5 degrees is about the model's own resolution and uses the least API quota.",
+    )
+
+    seas_day_key = pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d") + f"|{pd.Timestamp.now(tz='UTC').hour // 6}"
+
+    @st.cache_data(ttl=6 * 3600, show_spinner="Fetching EC46 ensemble...")
+    def cached_ec46(points, day_key):
+        res = forecast.fetch_ec46(list(points))
+        return res["weeks"], pd.Timestamp.now(tz="UTC")
+
+    @st.cache_data(ttl=12 * 3600, show_spinner="Fetching SEAS5...")
+    def cached_seas5(points, day_key):
+        return forecast.fetch_seas5(list(points)), pd.Timestamp.now(tz="UTC")
+
+    for region_name in selected_regions:
+        if region_name == "California":
+            st.info("California is skipped here to save API quota. Pick individual regions.")
+            continue
+        polygon = regions[region_name]["polygon"]
+        points = forecast.grid_points(polygon, engine.point_in_polygon, step=seas_step)
+        if not points:
+            st.warning(f"No grid points fall inside {region_name} at this spacing.")
+            continue
+
+        st.subheader(region_name)
+        tab_ec, tab_s5 = st.tabs(["EC46 · next 6 weeks", "SEAS5 · next 6 months"])
+
+        with tab_ec:
+            try:
+                weeks, got = cached_ec46(tuple(points), seas_day_key)
+            except Exception as exc:
+                st.error(f"{region_name}: EC46 request failed: {exc}")
+            else:
+                if weeks.empty:
+                    st.warning("No complete weeks returned.")
+                else:
+                    st.caption(
+                        f"EC46 · 51 members · {len(points)} grid points · complete "
+                        f"Monday–Sunday weeks (UTC) · retrieved {got:%b %d %H:%M} UTC. "
+                        "Bars show the member mean and the 10th–90th percentile range; "
+                        "chance is the share of members above normal."
+                    )
+                    st.plotly_chart(forecast.fig_ec46(weeks, compact=seas_phone),
+                                    use_container_width=True)
+                    tbl = pd.DataFrame({
+                        "Week of": [f"{d:%b %d}" for d in weeks.index],
+                        "Mean (in)": weeks["mean_in"].round(2).values,
+                        "10th (in)": weeks["p10_in"].round(2).values,
+                        "90th (in)": weeks["p90_in"].round(2).values,
+                        "Normal (in)": weeks["clim_in"].round(2).values,
+                        "Anomaly (in)": weeks["anom_mean_in"].round(2).values,
+                        "Chance wetter (%)": weeks["chance_wetter"].round(0).values,
+                        "Open-Meteo weekly mean (in)": weeks["api_mean_in"].round(2).values,
+                    })
+                    st.dataframe(tbl, use_container_width=True, hide_index=True)
+                    st.caption(
+                        "Totals are built from the 51 members' daily values. Rain is "
+                        "skewed, so the mean anomaly can be positive while fewer than "
+                        "half of members beat normal (a few very wet members pull the "
+                        "mean up). The last column is Open-Meteo's own weekly mean, "
+                        "which can run a few hundredths to a few tenths of an inch higher."
+                    )
+
+        with tab_s5:
+            try:
+                months, got5 = cached_seas5(tuple(points), seas_day_key)
+            except Exception as exc:
+                st.error(f"{region_name}: SEAS5 request failed: {exc}")
+            else:
+                if months.empty:
+                    st.warning("No monthly data returned.")
+                else:
+                    st.caption(
+                        f"SEAS5 · ensemble mean · {len(points)} grid points · "
+                        f"retrieved {got5:%b %d %H:%M} UTC. Open-Meteo gives only the "
+                        "ensemble mean for months, so there is no chance-of-wetter figure. "
+                        "Skill beyond the first month is low; treat it as a tilt in the odds."
+                    )
+                    st.plotly_chart(forecast.fig_seas5(months, compact=seas_phone),
+                                    use_container_width=True)
+                    t5 = pd.DataFrame({
+                        "Month": [f"{d:%b %Y}" for d in months.index],
+                        "Mean (in)": months["mean_in"].round(2).values,
+                        "Normal (in)": months["clim_in"].round(2).values,
+                        "Anomaly (in)": months["anom_in"].round(2).values,
+                        "% of normal": (months["mean_in"] / months["clim_in"] * 100).round(0).values,
+                    })
+                    st.dataframe(t5, use_container_width=True, hide_index=True)
 
 elif analysis_mode == "Extremes / Records":
     st.header("Extremes / Records")

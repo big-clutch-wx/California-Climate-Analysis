@@ -889,3 +889,208 @@ def fig_trend(series, window_label, font_size=12, compact=False):
         legend={"orientation": "h", "x": 0, "y": -0.25} if compact else {},
     )
     return fig
+
+
+# ---------------------------------------------------------------------------
+# Seasonal outlooks: ECMWF EC46 (weekly, 46 days) and SEAS5 (monthly, 7 months)
+# Open-Meteo seasonal API, 36 km grid, regional averages only.
+# ---------------------------------------------------------------------------
+SEASONAL_URL = "https://seasonal-api.open-meteo.com/v1/seasonal"
+SEASONAL_POINTS_PER_CALL = 25
+
+
+def _seasonal_get(params):
+    resp = None
+    for attempt in range(2):
+        resp = requests.get(SEASONAL_URL, params=params, timeout=90)
+        if resp.status_code != 429:
+            resp.raise_for_status()
+            return resp.json()
+        if attempt == 0:
+            time.sleep(min(float(resp.headers.get("Retry-After", 10)), 20))
+    raise RuntimeError(
+        "Open-Meteo is rate limiting this app right now. Wait a few minutes and "
+        "reload. Server said: " + resp.text[:200]
+    )
+
+
+def _seasonal_locations(points, params):
+    """All locations' payloads for the points, in order, chunked."""
+    out = []
+    chunks = [points[i:i + SEASONAL_POINTS_PER_CALL]
+              for i in range(0, len(points), SEASONAL_POINTS_PER_CALL)]
+    for n, chunk in enumerate(chunks):
+        if n:
+            time.sleep(PAUSE_BETWEEN_CALLS_S)
+        payload = _seasonal_get({
+            **params,
+            "latitude": ",".join(str(p[0]) for p in chunk),
+            "longitude": ",".join(str(p[1]) for p in chunk),
+        })
+        out.extend(payload if isinstance(payload, list) else [payload])
+    return out
+
+
+def parse_ec46(locations):
+    """Region-average EC46 from the API's location payloads.
+
+    Returns a dict:
+      weeks   DataFrame indexed by Monday start: clim_in, api_mean_in,
+              mean_in, p10_in, p90_in, anom_mean_in, anom_p10_in, anom_p90_in,
+              chance_wetter (percent of members above climatology)
+      members DataFrame (weeks x members) of weekly totals in inches
+    Only complete Monday-to-Sunday weeks with 7 forecast days are kept.
+    """
+    daily_frames, clims, api_means = [], [], []
+    for loc in locations:
+        d = loc["daily"]
+        t = pd.to_datetime(d["time"])
+        cols = {k: v for k, v in d.items() if k.startswith("precipitation_sum")}
+        daily_frames.append(pd.DataFrame(cols, index=t).astype(float))
+        w = loc["weekly"]
+        wt = pd.to_datetime(w["time"])
+        mean = pd.Series(w["precipitation_mean"], index=wt, dtype=float)
+        anom = pd.Series(w["precipitation_anomaly"], index=wt, dtype=float)
+        api_means.append(mean)
+        clims.append(mean - anom)
+    # Region average per member and day (same members in the same order everywhere).
+    daily = sum(daily_frames) / len(daily_frames)
+    clim = pd.concat(clims, axis=1).mean(axis=1)
+    api_mean = pd.concat(api_means, axis=1).mean(axis=1)
+
+    rows, member_rows = [], {}
+    for start in clim.index:
+        sl = daily[(daily.index >= start) & (daily.index < start + pd.Timedelta(days=7))]
+        if len(sl) < 7 or pd.isna(clim[start]):
+            continue
+        tot = sl.sum() / MM_PER_INCH
+        c = clim[start] / MM_PER_INCH
+        anom = tot - c
+        member_rows[start] = tot
+        rows.append({
+            "week": start, "clim_in": c, "api_mean_in": api_mean[start] / MM_PER_INCH,
+            "mean_in": tot.mean(), "p10_in": tot.quantile(0.10), "p90_in": tot.quantile(0.90),
+            "anom_mean_in": anom.mean(), "anom_p10_in": anom.quantile(0.10),
+            "anom_p90_in": anom.quantile(0.90),
+            "chance_wetter": float((tot > c).mean() * 100),
+            "members": int(tot.size),
+        })
+    weeks = pd.DataFrame(rows).set_index("week") if rows else pd.DataFrame()
+    members = pd.DataFrame(member_rows).T if member_rows else pd.DataFrame()
+    return {"weeks": weeks, "members": members}
+
+
+def parse_seas5(locations):
+    """Region-average SEAS5 monthly total and anomaly (inches), indexed by month start."""
+    means, anoms = [], []
+    for loc in locations:
+        m = loc["monthly"]
+        t = pd.to_datetime(m["time"])
+        means.append(pd.Series(m["precipitation_mean"], index=t, dtype=float))
+        anoms.append(pd.Series(m["precipitation_anomaly"], index=t, dtype=float))
+    mean = pd.concat(means, axis=1).mean(axis=1) / MM_PER_INCH
+    anom = pd.concat(anoms, axis=1).mean(axis=1) / MM_PER_INCH
+    df = pd.DataFrame({"mean_in": mean, "anom_in": anom})
+    df["clim_in"] = df["mean_in"] - df["anom_in"]
+    return df.dropna()
+
+
+def fetch_ec46(points):
+    locs = _seasonal_locations(points, {
+        "models": "ecmwf_ec46",
+        "daily": "precipitation_sum",
+        "weekly": "precipitation_mean,precipitation_anomaly",
+        "forecast_days": 46,
+    })
+    return parse_ec46(locs)
+
+
+def fetch_seas5(points):
+    locs = _seasonal_locations(points, {
+        "models": "ecmwf_seas5",
+        "monthly": "precipitation_mean,precipitation_anomaly",
+    })
+    return parse_seas5(locs)
+
+
+_WET, _DRY = "#2a7fb8", "#b8793a"
+
+
+def _anom_colors(values):
+    return [_WET if v >= 0 else _DRY for v in values]
+
+
+def fig_ec46(weeks, font_size=12, compact=False):
+    """Three stacked panels: weekly total, anomaly, chance wetter than normal."""
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+    labels = [f"{d:%b} {d.day}" for d in weeks.index]
+    fig = make_subplots(
+        rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.06,
+        row_heights=[0.4, 0.35, 0.25],
+        subplot_titles=("Weekly total (in)", "Anomaly vs normal (in)",
+                        "Chance wetter than normal (%)"),
+    )
+    fig.add_trace(go.Bar(
+        x=labels, y=weeks["mean_in"], name="Ensemble mean", marker_color=_WET,
+        error_y={"type": "data", "symmetric": False,
+                 "array": weeks["p90_in"] - weeks["mean_in"],
+                 "arrayminus": weeks["mean_in"] - weeks["p10_in"]},
+        hovertemplate="Mean %{y:.2f} in (10th–90th shown)<extra></extra>"), row=1, col=1)
+    fig.add_trace(go.Scatter(
+        x=labels, y=weeks["clim_in"], mode="markers+lines", name="Normal",
+        line={"dash": "dot", "color": "#444"}, marker={"size": 7, "color": "#444"},
+        hovertemplate="Normal %{y:.2f} in<extra></extra>"), row=1, col=1)
+    fig.add_trace(go.Bar(
+        x=labels, y=weeks["anom_mean_in"], name="Anomaly",
+        marker_color=_anom_colors(weeks["anom_mean_in"]),
+        error_y={"type": "data", "symmetric": False,
+                 "array": weeks["anom_p90_in"] - weeks["anom_mean_in"],
+                 "arrayminus": weeks["anom_mean_in"] - weeks["anom_p10_in"]},
+        hovertemplate="Anomaly %{y:+.2f} in<extra></extra>", showlegend=False),
+        row=2, col=1)
+    ch = weeks["chance_wetter"]
+    fig.add_trace(go.Bar(
+        x=labels, y=ch, name="Chance wetter", showlegend=False,
+        marker_color=[_WET if v >= 50 else _DRY for v in ch],
+        text=[f"{v:.0f}" for v in ch], textposition="inside",
+        hovertemplate="%{y:.0f}% of members above normal<extra></extra>"), row=3, col=1)
+    fig.add_hline(y=50, line_dash="dot", line_color="#888", row=3, col=1)
+    fig.update_yaxes(range=[0, 100], row=3, col=1)
+    fig.update_xaxes(title_text="Week starting (Monday, UTC)" if not compact else None,
+                     type="category", row=3, col=1)
+    fig.update_layout(
+        height=620 if compact else 760, bargap=0.25,
+        margin={"t": 40, "l": 48 if compact else 60, "r": 10},
+        font={"size": min(font_size, 11) if compact else font_size},
+        legend={"orientation": "h", "x": 0, "y": -0.12},
+    )
+    return fig
+
+
+def fig_seas5(months, font_size=12, compact=False):
+    """Two stacked panels: monthly total with normal, and anomaly."""
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+    labels = [f"{d:%b %Y}" for d in months.index]
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.08,
+                        row_heights=[0.55, 0.45],
+                        subplot_titles=("Monthly total (in)", "Anomaly vs normal (in)"))
+    fig.add_trace(go.Bar(x=labels, y=months["mean_in"], name="Ensemble mean",
+                         marker_color=_WET,
+                         hovertemplate="Mean %{y:.2f} in<extra></extra>"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=labels, y=months["clim_in"], mode="markers+lines",
+                             name="Normal", line={"dash": "dot", "color": "#444"},
+                             marker={"size": 7, "color": "#444"},
+                             hovertemplate="Normal %{y:.2f} in<extra></extra>"), row=1, col=1)
+    fig.add_trace(go.Bar(x=labels, y=months["anom_in"], showlegend=False,
+                         marker_color=_anom_colors(months["anom_in"]),
+                         hovertemplate="Anomaly %{y:+.2f} in<extra></extra>"), row=2, col=1)
+    fig.update_xaxes(type="category")
+    fig.update_layout(
+        height=480 if compact else 560, bargap=0.3,
+        margin={"t": 40, "l": 48 if compact else 60, "r": 10},
+        font={"size": min(font_size, 11) if compact else font_size},
+        legend={"orientation": "h", "x": 0, "y": -0.1},
+    )
+    return fig
