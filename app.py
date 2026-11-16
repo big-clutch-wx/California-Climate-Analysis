@@ -817,6 +817,7 @@ FORECAST_PRESETS = {
     "Redding": (40.59, -122.39),
     "Reno (NV)": (39.53, -119.81),
     "Ridgecrest": (35.62, -117.67),
+    "Redwood City": (37.47, -122.23),
     "Sacramento": (38.58, -121.49),
     "San Bernardino": (34.11, -117.29),
     "San Diego": (32.72, -117.16),
