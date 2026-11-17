@@ -1163,7 +1163,7 @@ def refs_point(lat, lon):
 
 def sr_day_table(df_mm, timezone="America/Los_Angeles"):
     """Per-Pacific-day totals in inches, one row per series. Partial days are flagged."""
-    local = df_mm.copy()
+    local = df_mm.drop(columns=["REFS PMM"], errors="ignore")   # PMM does not add up over hours
     # Index is hour-ending; group by when each hour started so 00:00 closes the previous day.
     local.index = (local.index - pd.Timedelta(hours=1)).tz_convert(timezone)
     days = local.groupby(local.index.date)
@@ -1184,8 +1184,9 @@ def fig_sr_cumulative(df_mm, timezone="America/Los_Angeles", font_size=12, compa
         fig.add_trace(go.Scatter(x=cum.index, y=cum[col], mode="lines", name=col,
                                  line={"width": 1}, opacity=0.55,
                                  hovertemplate=col + " %{y:.2f} in<extra></extra>"))
-    style = {"RRFS": ("#111111", 2.5, "solid"), "REFS mean": ("#d62728", 3.5, "solid"),
-             "REFS PMM": ("#9467bd", 3, "dash")}
+    # PMM is left out here: summing hourly PMM values adds up each hour's peaks and
+    # overstates the total, so only the plain mean and the deterministic run accumulate.
+    style = {"RRFS": ("#111111", 2.5, "solid"), "REFS mean": ("#d62728", 3.5, "solid")}
     for col, (color, w, dash) in style.items():
         if col in cum.columns:
             fig.add_trace(go.Scatter(x=cum.index, y=cum[col], mode="lines", name=col,
@@ -1219,6 +1220,10 @@ def fig_sr_hourly(df_mm, timezone="America/Los_Angeles", font_size=12, compact=F
         fig.add_trace(go.Bar(x=inch.index, y=inch["REFS mean"], name="REFS mean",
                              marker_color="#d62728", opacity=0.75,
                              hovertemplate="REFS mean %{y:.3f} in<extra></extra>"))
+    if "REFS PMM" in inch:
+        fig.add_trace(go.Scatter(x=inch.index, y=inch["REFS PMM"], mode="lines",
+                                 name="REFS PMM", line={"color": "#9467bd", "width": 2, "dash": "dash"},
+                                 hovertemplate="REFS PMM %{y:.3f} in<extra></extra>"))
     if "RRFS" in inch:
         fig.add_trace(go.Scatter(x=inch.index, y=inch["RRFS"], mode="lines", name="RRFS",
                                  line={"color": "#111111", "width": 2},
