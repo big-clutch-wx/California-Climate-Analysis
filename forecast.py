@@ -345,8 +345,13 @@ BLEND_MODELS = [
 
 
 def fetch_point_members(lat, lon, model_id, forecast_days=16,
-                        timezone="America/Los_Angeles"):
+                        timezone="America/Los_Angeles", variable="precipitation"):
     """Hourly member precipitation (mm) for one model at one point.
+
+    variable="snowfall" asks Open-Meteo for its snowfall field instead (cm of snow per
+    hour, derived from the model's precipitation and temperature at the point's own
+    elevation). It is returned x10, as mm of snow depth, in the same precip_mm column so
+    every daily total, chart and table downstream converts it to inches unchanged.
 
     Returns columns member, time, grid_index, precip_mm in the same shape as
     fetch_daily_precip, so member_region_means works on it unchanged. The plain
@@ -357,7 +362,7 @@ def fetch_point_members(lat, lon, model_id, forecast_days=16,
     payload = _get_with_retry({
         "latitude": lat,
         "longitude": lon,
-        "hourly": "precipitation",
+        "hourly": variable,
         "models": model_id,
         "forecast_days": forecast_days,
         "timezone": timezone,
@@ -365,7 +370,7 @@ def fetch_point_members(lat, lon, model_id, forecast_days=16,
     loc = payload[0] if isinstance(payload, list) else payload
     hourly = loc["hourly"]
     times = pd.to_datetime(hourly["time"])
-    pattern = re.compile(r"^precipitation(?:_member(\d+))?(?:_" + re.escape(model_id) + r")?$")
+    pattern = re.compile(r"^" + variable + r"(?:_member(\d+))?(?:_" + re.escape(model_id) + r")?$")
     columns = {}
     for key, values in hourly.items():
         match = pattern.match(key)
@@ -377,8 +382,12 @@ def fetch_point_members(lat, lon, model_id, forecast_days=16,
             name = f"precipitation_member{int(match.group(1)):02d}"
         columns[name] = values
     if not columns:
-        raise ValueError(f"No member precipitation fields returned for {model_id}.")
+        raise ValueError(f"No member {variable} fields returned for {model_id}.")
     wide = pd.DataFrame(columns, index=times)
+    if variable == "snowfall":
+        if wide.isna().all().all():
+            raise ValueError("Open-Meteo has no snowfall for this model right now")
+        wide = wide * 10.0           # cm of snow -> mm of snow depth
     long = wide.reset_index(names="time").melt(
         id_vars="time", var_name="member", value_name="precip_mm"
     )
@@ -386,8 +395,11 @@ def fetch_point_members(lat, lon, model_id, forecast_days=16,
     return long[["member", "time", "grid_index", "precip_mm"]]
 
 
-def fetch_point_blend(lat, lon, forecast_days=15):
+def fetch_point_blend(lat, lon, forecast_days=15, variable="precipitation"):
     """Daily member totals for every blend model. Returns (per_model, errors).
+
+    variable="snowfall" reads Open-Meteo's snowfall for every model (the model cubes
+    published by the job hold precipitation only), in mm of snow depth.
 
     A model that fails is reported in errors and left out, so one outage does
     not blank the whole page.
@@ -398,13 +410,14 @@ def fetch_point_blend(lat, lon, forecast_days=15):
             time.sleep(1.0)
         try:
             raw = None
-            if name in CUBE_SOURCES:
+            if name in CUBE_SOURCES and variable == "precipitation":
                 try:
                     raw = wn2_cube_hourly([(lat, lon)], model=name)
                 except Exception:  # noqa: BLE001 - fall back to Open-Meteo
                     raw = None
             if raw is None:
-                raw = fetch_point_members(lat, lon, model_id, forecast_days=forecast_days + 1)
+                raw = fetch_point_members(lat, lon, model_id, forecast_days=forecast_days + 1,
+                                          variable=variable)
             daily = member_region_means(raw, max_days=forecast_days)
             daily.attrs["source"] = raw.attrs.get("source", "Open-Meteo")
             if daily.empty:
@@ -534,7 +547,8 @@ def blend_member_matrix(blend, cumulative=False, per_model=None):
 # Text sizes are arguments with defaults. The app passes its own values from the
 # TEXT SIZES block in app.py, so change them there.
 
-def fig_cumulative(summary, mean_label="Mean", font_size=12, compact=False):
+def fig_cumulative(summary, mean_label="Mean", font_size=12, compact=False,
+                   what="precipitation"):
     """Cumulative line chart: 10th-90th band, median and mean."""
     import plotly.graph_objects as go
     fig = go.Figure()
@@ -571,7 +585,7 @@ def fig_cumulative(summary, mean_label="Mean", font_size=12, compact=False):
         )
         return fig
     fig.update_layout(
-        yaxis_title="Cumulative precipitation (in)",
+        yaxis_title=f"Cumulative {what} (in)",
         xaxis_title="Date",
         hovermode="x unified",
         height=420,
@@ -1134,17 +1148,33 @@ def load_refs():
                             timeout=180)
         resp.raise_for_status()
         with np.load(io.BytesIO(resp.content)) as z:
-            cube = {k: z[k] for k in ("precip", "lat", "lon", "lead_hours", "names", "scale")}
+            keys = ("precip", "lat", "lon", "lead_hours", "names", "scale")
+            cube = {k: z[k] for k in keys}
+            for k in ("snow", "snow_names", "snow_scale"):     # absent in older runs
+                if k in z.files:
+                    cube[k] = z[k]
         _REFS_CACHE.clear()
         _REFS_CACHE.update({"key": key, "cube": cube})
     return _REFS_CACHE["cube"], meta
 
 
-def refs_point(lat, lon):
-    """Hourly precipitation (mm) at the grid cell nearest the point.
+def refs_has_snow():
+    """True when the newest published run carries snowfall."""
+    cube, _meta = load_refs()
+    return "snow" in cube
+
+
+SR_MEAN_COLS = ("REFS mean", "Member mean")
+
+
+def refs_point(lat, lon, kind="precip"):
+    """Hourly amounts (mm; for kind="snow", mm of snow depth) at the cell nearest the point.
 
     Returns (DataFrame indexed by valid time in UTC with one column per series,
              init Timestamp (UTC), distance to the cell in km).
+    kind="snow" is the model's own accumulated snowfall (RRFS ASNOW) made hourly. It has
+    the five RRFS members and the deterministic run; if the REFS statistics file has no
+    snowfall, a "Member mean" column (average of the five members) stands in for the mean.
     """
     cube, meta = load_refs()
     glat, glon = cube["lat"].astype("float64"), cube["lon"].astype("float64")
@@ -1154,10 +1184,21 @@ def refs_point(lat, lon):
     km = float(np.sqrt(dist2[iy, ix]))
     if km > 6.0:
         raise ValueError(f"point is {km:.0f} km from the nearest 3 km grid cell (outside the data box)")
-    series = cube["precip"][:, :, iy, ix].astype("float64") / float(cube["scale"])
+    if kind == "snow":
+        if "snow" not in cube:
+            raise ValueError("this run has no snowfall data")
+        series = cube["snow"][:, :, iy, ix].astype("float64") / float(cube["snow_scale"])
+        names = [str(n) for n in cube["snow_names"]]
+    else:
+        series = cube["precip"][:, :, iy, ix].astype("float64") / float(cube["scale"])
+        names = [str(n) for n in cube["names"]]
     init = pd.Timestamp(meta["init_utc"]).tz_convert("UTC")
     times = init + pd.to_timedelta(cube["lead_hours"].astype(int), unit="h")
-    df = pd.DataFrame(series.T, index=times, columns=[str(n) for n in cube["names"]])
+    df = pd.DataFrame(series.T, index=times, columns=names)
+    if kind == "snow" and "REFS mean" not in df:
+        members = [c for c in df.columns if c.startswith("RRFS m")]
+        if members:
+            df["Member mean"] = df[members].mean(axis=1)
     return df, init, km
 
 
@@ -1175,7 +1216,8 @@ def sr_day_table(df_mm, timezone="America/Los_Angeles"):
     return pd.DataFrame(out)
 
 
-def fig_sr_cumulative(df_mm, timezone="America/Los_Angeles", font_size=12, compact=False):
+def fig_sr_cumulative(df_mm, timezone="America/Los_Angeles", font_size=12, compact=False,
+                      what="precipitation"):
     import plotly.graph_objects as go
     cum = df_mm.cumsum() / MM_PER_INCH
     cum.index = cum.index.tz_convert(timezone)
@@ -1186,7 +1228,8 @@ def fig_sr_cumulative(df_mm, timezone="America/Los_Angeles", font_size=12, compa
                                  hovertemplate=col + " %{y:.2f} in<extra></extra>"))
     # PMM is left out here: summing hourly PMM values adds up each hour's peaks and
     # overstates the total, so only the plain mean and the deterministic run accumulate.
-    style = {"RRFS": ("#111111", 2.5, "solid"), "REFS mean": ("#d62728", 3.5, "solid")}
+    style = {"RRFS": ("#111111", 2.5, "solid"), "REFS mean": ("#d62728", 3.5, "solid"),
+             "Member mean": ("#d62728", 3.5, "solid")}
     for col, (color, w, dash) in style.items():
         if col in cum.columns:
             fig.add_trace(go.Scatter(x=cum.index, y=cum[col], mode="lines", name=col,
@@ -1194,7 +1237,7 @@ def fig_sr_cumulative(df_mm, timezone="America/Los_Angeles", font_size=12, compa
                                      hovertemplate=col + " %{y:.2f} in<extra></extra>"))
     fig.update_layout(
         height=380 if compact else 480, hovermode="x unified",
-        yaxis_title="Accumulated precipitation (in)",
+        yaxis_title=f"Accumulated {what} (in)",
         margin={"t": 20, "l": 46 if compact else 60, "r": 10},
         font={"size": min(font_size, 11) if compact else font_size},
         legend={"orientation": "h", "x": 0, "y": -0.2},
@@ -1202,8 +1245,9 @@ def fig_sr_cumulative(df_mm, timezone="America/Los_Angeles", font_size=12, compa
     return fig
 
 
-def fig_sr_hourly(df_mm, timezone="America/Los_Angeles", font_size=12, compact=False):
-    """Hourly amounts: REFS mean bars, member range band, RRFS deterministic line."""
+def fig_sr_hourly(df_mm, timezone="America/Los_Angeles", font_size=12, compact=False,
+                  what="precipitation"):
+    """Hourly amounts: mean bars, member range band, RRFS deterministic line."""
     import plotly.graph_objects as go
     inch = df_mm / MM_PER_INCH
     inch.index = inch.index.tz_convert(timezone)
@@ -1216,10 +1260,11 @@ def fig_sr_hourly(df_mm, timezone="America/Los_Angeles", font_size=12, compact=F
                                  line={"width": 0}, fill="tonexty",
                                  fillcolor="rgba(120,120,120,0.25)", name="RRFS members (range)",
                                  hoverinfo="skip"))
-    if "REFS mean" in inch:
-        fig.add_trace(go.Bar(x=inch.index, y=inch["REFS mean"], name="REFS mean",
+    mean_col = next((c for c in SR_MEAN_COLS if c in inch), None)
+    if mean_col:
+        fig.add_trace(go.Bar(x=inch.index, y=inch[mean_col], name=mean_col,
                              marker_color="#d62728", opacity=0.75,
-                             hovertemplate="REFS mean %{y:.3f} in<extra></extra>"))
+                             hovertemplate=mean_col + " %{y:.3f} in<extra></extra>"))
     if "REFS PMM" in inch:
         fig.add_trace(go.Scatter(x=inch.index, y=inch["REFS PMM"], mode="lines",
                                  name="REFS PMM", line={"color": "#9467bd", "width": 2, "dash": "dash"},
@@ -1230,7 +1275,7 @@ def fig_sr_hourly(df_mm, timezone="America/Los_Angeles", font_size=12, compact=F
                                  hovertemplate="RRFS %{y:.3f} in<extra></extra>"))
     fig.update_layout(
         height=300 if compact else 360, hovermode="x unified",
-        yaxis_title="Hourly precipitation (in)",
+        yaxis_title=f"Hourly {what} (in)",
         margin={"t": 20, "l": 46 if compact else 60, "r": 10},
         font={"size": min(font_size, 11) if compact else font_size},
         legend={"orientation": "h", "x": 0, "y": -0.2}, bargap=0.05,

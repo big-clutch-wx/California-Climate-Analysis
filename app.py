@@ -2247,10 +2247,10 @@ elif analysis_mode == "Medium-Range Forecast":
             colorbar_font=FONT_COLORBAR, compact=PHONE_VIEW,
         )
 
-    def cumulative_fig(summary, mean_label="Mean"):
+    def cumulative_fig(summary, mean_label="Mean", what="precipitation"):
         return forecast.fig_cumulative(summary, mean_label=mean_label,
                                        font_size=FONT_CUMULATIVE_CHART,
-                                       compact=PHONE_VIEW)
+                                       compact=PHONE_VIEW, what=what)
 
     def daily_matrix_fig(matrix, use_chance, threshold_in):
         return forecast.fig_daily_matrix(matrix, use_chance, threshold_in,
@@ -2284,23 +2284,24 @@ elif analysis_mode == "Medium-Range Forecast":
         })
         st.dataframe(table.round(2), use_container_width=True, hide_index=True)
 
-    def daily_matrix_controls(key):
+    def daily_matrix_controls(key, snow=False):
+        word = "snow" if snow else "rain"
         mcol1, mcol2 = st.columns(2)
         metric = mcol1.radio(
             "Daily matrix shows",
-            ["Chance of rain", "Median daily total"],
+            [f"Chance of {word}", "Median daily total"],
             horizontal=True,
-            key=f"fc_matrix_metric_{key}",
+            key=f"fc_matrix_metric_{key}{'_snow' if snow else ''}",
         )
         threshold = mcol2.selectbox(
-            "Rain threshold (in/day)",
-            [0.01, 0.10, 0.25, 0.50, 1.00],
-            index=1,
-            disabled=(metric != "Chance of rain"),
-            key=f"fc_matrix_threshold_{key}",
-            help="A member counts as 'rain' when the day's total is at or above this amount.",
+            f"{word.capitalize()} threshold (in/day)",
+            [0.1, 0.5, 1.0, 2.0, 4.0, 8.0] if snow else [0.01, 0.10, 0.25, 0.50, 1.00],
+            index=1 if snow else 1,
+            disabled=(metric != f"Chance of {word}"),
+            key=f"fc_matrix_threshold_{key}{'_snow' if snow else ''}",
+            help=f"A member counts as '{word}' when the day's total is at or above this amount.",
         )
-        return metric == "Chance of rain", threshold
+        return metric == f"Chance of {word}", threshold
 
     if forecast_mode == "Regional (WN2)":
 
@@ -2453,14 +2454,29 @@ elif analysis_mode == "Medium-Range Forecast":
             pc3.text_input("Longitude", f"{lon:.2f}", disabled=True)
         point_name = choice if choice != "Custom lat/lon" else f"{lat:.2f}, {lon:.2f}"
 
+        sp_var = st.radio("Show", ["Precipitation", "Snowfall"], horizontal=True, key="sp_var")
+        sp_snow = sp_var == "Snowfall"
+        sp_what = "snowfall" if sp_snow else "precipitation"
+        if sp_snow:
+            st.info(
+                "Snowfall comes from Open-Meteo for all three models. It is derived from each "
+                "model's precipitation and temperature, with temperature adjusted to the "
+                "point's own elevation, and uses a fixed snow-to-liquid ratio of about 7 to 1. "
+                "Cold, dry Sierra snow can run 10 to 15 to 1, so cold storms can be "
+                "underestimated and warm ones overestimated. Run history is not available "
+                "for snowfall."
+            )
+
         @st.cache_data(ttl=6 * 3600, show_spinner="Fetching WeatherNext 2, EPS and AIFS-ENS...")
-        def cached_point_blend(lat, lon, day_key):
-            per_model, errors = forecast.fetch_point_blend(lat, lon, forecast_days=15)
+        def cached_point_blend(lat, lon, day_key, variable):
+            per_model, errors = forecast.fetch_point_blend(lat, lon, forecast_days=15,
+                                                           variable=variable)
             return per_model, errors, pd.Timestamp.now(tz="UTC")
 
         try:
             per_model, model_errors, fetched_at = cached_point_blend(
-                round(float(lat), 2), round(float(lon), 2), forecast_day_key
+                round(float(lat), 2), round(float(lon), 2), forecast_day_key,
+                "snowfall" if sp_snow else "precipitation",
             )
         except Exception as exc:
             st.error(f"Forecast request failed: {exc}")
@@ -2506,12 +2522,12 @@ elif analysis_mode == "Medium-Range Forecast":
                 "that have them; those days are not part of the blend."
             )
 
-        st.plotly_chart(cumulative_fig(summary, mean_label="Blend mean"),
+        st.plotly_chart(cumulative_fig(summary, mean_label="Blend mean", what=sp_what),
                         use_container_width=True)
         show_forecast_table(summary)
 
-        st.markdown("**Daily precipitation matrix**")
-        use_chance, threshold_in = daily_matrix_controls("point")
+        st.markdown(f"**Daily {sp_what} matrix**")
+        use_chance, threshold_in = daily_matrix_controls("point", snow=sp_snow)
         matrix = forecast.blend_daily_matrix(
             blend,
             metric="chance" if use_chance else "median",
@@ -2523,6 +2539,7 @@ elif analysis_mode == "Medium-Range Forecast":
             "Blend weights each model equally. Each model is read at its nearest "
             "0.25° grid cell, so a point in the mountains reflects the cell average "
             "rather than the exact spot."
+            + (" Snowfall temperatures are adjusted to the point's elevation." if sp_snow else "")
         )
 
         st.markdown("**Member matrix**")
@@ -2554,7 +2571,7 @@ elif analysis_mode == "Medium-Range Forecast":
             st.plotly_chart(member_plume_fig(m_members, m_mean), use_container_width=True)
 
         st.caption(
-            mm_mode + " precipitation in inches for every member of each model "
+            mm_mode + f" {sp_what} in inches for every member of each model "
             "(CONT is each model's control run). MEAN under each matrix is that "
             "model's own mean; the Blend mean at the top is the equal-weight "
             "average of the three model means over the days all models have. "
@@ -2568,93 +2585,94 @@ elif analysis_mode == "Medium-Range Forecast":
         st.download_button(
             "Download member matrix as CSV",
             csv_df.rename(columns=lambda d: d.strftime("%Y-%m-%d")).to_csv(index_label="Member"),
-            file_name=f"blend_members_{point_name.replace(' ', '_').replace(',', '')}_{mm_mode.lower()}.csv",
+            file_name=f"blend_members_{sp_what}_{point_name.replace(' ', '_').replace(',', '')}_{mm_mode.lower()}.csv",
             mime="text/csv",
             key="fc_member_csv_point",
         )
 
-        # ------------------------------------------------------------------
-        # Forecast trend: this location's total for a fixed window, run by run.
-        # ------------------------------------------------------------------
-        st.subheader("Forecast trend")
+        if not sp_snow:
+            # ------------------------------------------------------------------
+            # Forecast trend: this location's total for a fixed window, run by run.
+            # ------------------------------------------------------------------
+            st.subheader("Forecast trend")
 
-        @st.cache_data(ttl=300, show_spinner=False)
-        def cached_trend(name, refresh):
-            return forecast.load_trend(name)
+            @st.cache_data(ttl=300, show_spinner=False)
+            def cached_trend(name, refresh):
+                return forecast.load_trend(name)
 
-        trend_data = None
-        if choice != "Custom lat/lon":
-            try:
-                trend_data = cached_trend(choice, FC_REFRESH)
-            except Exception as exc:  # noqa: BLE001
-                st.warning(f"Run history could not be loaded: {exc}")
-        if choice == "Custom lat/lon":
-            st.info("Run history is saved for the preset cities only. Pick a preset "
-                    "to see how its forecast has changed from run to run.")
-        elif trend_data is None:
-            st.info(f"No run history has been saved for {choice} yet.")
-        else:
-            tc1, tc2 = st.columns([3, 2])
-            span = tc1.radio(
-                "Total over",
-                ["Next 3 days", "Next 5 days", "Next 7 days", "Next 10 days", "Next 14 days"],
-                index=2, horizontal=True, key="fc_trend_span",
-            )
-            window_kind = tc2.radio(
-                "Window",
-                ["Each run's own days", "Same dates for every run"],
-                horizontal=True, key="fc_trend_window",
-            )
-            rolling = window_kind.startswith("Each")
-            n_days = int(span.split()[1])
-            window_start = blend["date"].min()
-            window_end = window_start + pd.Timedelta(days=n_days - 1)
-            series = forecast.trend_series(trend_data, window_start, n_days, rolling=rolling)
-            if all(df.empty for df in series["models"].values()):
-                st.info("No saved run covers this whole window yet.")
+            trend_data = None
+            if choice != "Custom lat/lon":
+                try:
+                    trend_data = cached_trend(choice, FC_REFRESH)
+                except Exception as exc:  # noqa: BLE001
+                    st.warning(f"Run history could not be loaded: {exc}")
+            if choice == "Custom lat/lon":
+                st.info("Run history is saved for the preset cities only. Pick a preset "
+                        "to see how its forecast has changed from run to run.")
+            elif trend_data is None:
+                st.info(f"No run history has been saved for {choice} yet.")
             else:
-                if rolling:
-                    st.caption(
-                        f"Total precipitation over each run's own first {n_days} days "
-                        "(from its first complete Pacific-time day). Each point is one "
-                        "model run; the blend uses each model's newest run at that time. "
-                        "The window moves forward a few hours with each run, so part of "
-                        "a change can come from the days that entered or left it."
-                    )
+                tc1, tc2 = st.columns([3, 2])
+                span = tc1.radio(
+                    "Total over",
+                    ["Next 3 days", "Next 5 days", "Next 7 days", "Next 10 days", "Next 14 days"],
+                    index=2, horizontal=True, key="fc_trend_span",
+                )
+                window_kind = tc2.radio(
+                    "Window",
+                    ["Each run's own days", "Same dates for every run"],
+                    horizontal=True, key="fc_trend_window",
+                )
+                rolling = window_kind.startswith("Each")
+                n_days = int(span.split()[1])
+                window_start = blend["date"].min()
+                window_end = window_start + pd.Timedelta(days=n_days - 1)
+                series = forecast.trend_series(trend_data, window_start, n_days, rolling=rolling)
+                if all(df.empty for df in series["models"].values()):
+                    st.info("No saved run covers this whole window yet.")
                 else:
-                    st.caption(
-                        f"Total precipitation for {window_start.strftime('%b %d')} to "
-                        f"{window_end.strftime('%b %d')} as forecast by each run. Each "
-                        "point is one model run; the blend uses each model's newest run "
-                        "at that time. A run only appears if it covers the whole window."
+                    if rolling:
+                        st.caption(
+                            f"Total precipitation over each run's own first {n_days} days "
+                            "(from its first complete Pacific-time day). Each point is one "
+                            "model run; the blend uses each model's newest run at that time. "
+                            "The window moves forward a few hours with each run, so part of "
+                            "a change can come from the days that entered or left it."
+                        )
+                    else:
+                        st.caption(
+                            f"Total precipitation for {window_start.strftime('%b %d')} to "
+                            f"{window_end.strftime('%b %d')} as forecast by each run. Each "
+                            "point is one model run; the blend uses each model's newest run "
+                            "at that time. A run only appears if it covers the whole window."
+                        )
+                    st.plotly_chart(
+                        forecast.fig_trend(series, span, font_size=FONT_CUMULATIVE_CHART,
+                                           compact=PHONE_VIEW),
+                        use_container_width=True,
                     )
-                st.plotly_chart(
-                    forecast.fig_trend(series, span, font_size=FONT_CUMULATIVE_CHART,
-                                       compact=PHONE_VIEW),
-                    use_container_width=True,
-                )
-                tsum = forecast.trend_summary(series)
-                tshow = tsum.copy()
-                tshow["Total (in)"] = tshow["Total (in)"].map(lambda v: f"{v:.2f}")
-                for col in ("vs previous run", "vs ~24 h earlier", "vs oldest kept"):
-                    tshow[col] = tshow[col].map(lambda v: "–" if pd.isna(v) else f"{v:+.2f}")
-                st.dataframe(tshow, use_container_width=True, hide_index=True)
-                saved_runs = sum(len(trend_data.get("runs", {}).get(m, []))
-                                 for m in forecast.TREND_MODELS)
-                shown_runs = sum(len(df) for df in series["models"].values())
-                if shown_runs < saved_runs:
+                    tsum = forecast.trend_summary(series)
+                    tshow = tsum.copy()
+                    tshow["Total (in)"] = tshow["Total (in)"].map(lambda v: f"{v:.2f}")
+                    for col in ("vs previous run", "vs ~24 h earlier", "vs oldest kept"):
+                        tshow[col] = tshow[col].map(lambda v: "–" if pd.isna(v) else f"{v:+.2f}")
+                    st.dataframe(tshow, use_container_width=True, hide_index=True)
+                    saved_runs = sum(len(trend_data.get("runs", {}).get(m, []))
+                                     for m in forecast.TREND_MODELS)
+                    shown_runs = sum(len(df) for df in series["models"].values())
+                    if shown_runs < saved_runs:
+                        st.caption(
+                            f"{shown_runs} of {saved_runs} saved runs reach the end of this "
+                            "window. Each run stops 15 days after it starts, so older runs "
+                            "fall short of the later days, and the longer the window the "
+                            "fewer older runs qualify."
+                        )
                     st.caption(
-                        f"{shown_runs} of {saved_runs} saved runs reach the end of this "
-                        "window. Each run stops 15 days after it starts, so older runs "
-                        "fall short of the later days, and the longer the window the "
-                        "fewer older runs qualify."
+                        "Changes are in inches: positive means the latest run is wetter. "
+                        "History keeps the last 12 runs for WN2 and AIFS-ENS and the last 6 "
+                        "for EPS (00z and 12z only), so each model covers about three days. "
+                        "Runs fill in from when saving began, so some lines start short."
                     )
-                st.caption(
-                    "Changes are in inches: positive means the latest run is wetter. "
-                    "History keeps the last 12 runs for WN2 and AIFS-ENS and the last 6 "
-                    "for EPS (00z and 12z only), so each model covers about three days. "
-                    "Runs fill in from when saving began, so some lines start short."
-                )
 
         st.caption(
             "Skill declines with lead time. Treat later days as a range of possibilities, "
@@ -2804,6 +2822,21 @@ elif analysis_mode == "Short-Range Forecast":
     with _sr_b:
         sr_refresh = forecast_refresh_button("sr_update_btn")
 
+    try:
+        sr_has_snow = forecast.refs_has_snow()
+    except Exception:
+        sr_has_snow = False
+    sr_var = st.radio(
+        "Show", ["Precipitation", "Snowfall"], horizontal=True, key="sr_var",
+        disabled=not sr_has_snow,
+        help=None if sr_has_snow else "The latest published run has no snowfall data yet. "
+             "Update the job (wn2_job.zip) and run it once to add it.",
+    )
+    if not sr_has_snow:
+        sr_var = "Precipitation"
+    sr_snow = sr_var == "Snowfall"
+    sr_what = "snowfall" if sr_snow else "precipitation"
+
     sr_choices = list(FORECAST_PRESETS) + ["Custom lat/lon"]
     sc1, sc2, sc3 = st.columns([2, 1, 1])
     sr_choice = sc1.selectbox("Location", sr_choices, index=sr_choices.index("Sacramento"),
@@ -2820,13 +2853,13 @@ elif analysis_mode == "Short-Range Forecast":
     sr_name = sr_choice if sr_choice != "Custom lat/lon" else f"{sr_lat:.2f}, {sr_lon:.2f}"
 
     @st.cache_data(ttl=1800, show_spinner="Loading the latest RRFS/REFS run...")
-    def cached_refs_point(lat, lon, refresh):
-        df, init, km = forecast.refs_point(lat, lon)
+    def cached_refs_point(lat, lon, refresh, kind):
+        df, init, km = forecast.refs_point(lat, lon, kind=kind)
         return df, init, km
 
     try:
         sr_df, sr_init, sr_km = cached_refs_point(round(float(sr_lat), 2), round(float(sr_lon), 2),
-                                                  sr_refresh)
+                                                  sr_refresh, "snow" if sr_snow else "precip")
     except Exception as exc:
         st.error(f"Short-range data is not available right now: {exc}")
         st.stop()
@@ -2840,18 +2873,31 @@ elif analysis_mode == "Short-Range Forecast":
     totals = inches.sum()
     members = [c for c in inches.columns if c.startswith("RRFS m")]
     mcols = st.columns(4)
-    if "REFS mean" in totals:
-        mcols[0].metric("REFS mean, 60 h", f"{totals['REFS mean']:.2f} in")
+    sr_mean_col = next((c for c in forecast.SR_MEAN_COLS if c in totals), None)
+    if sr_mean_col:
+        mcols[0].metric(f"{sr_mean_col}, 60 h", f"{totals[sr_mean_col]:.2f} in")
     if "RRFS" in totals:
         mcols[1].metric("RRFS deterministic", f"{totals['RRFS']:.2f} in")
     if members:
         mcols[2].metric("RRFS members, low", f"{totals[members].min():.2f} in")
         mcols[3].metric("RRFS members, high", f"{totals[members].max():.2f} in")
 
-    st.markdown("**Accumulated precipitation**")
-    st.plotly_chart(forecast.fig_sr_cumulative(sr_df, compact=sr_phone), use_container_width=True)
-    st.markdown("**Hourly precipitation**")
-    st.plotly_chart(forecast.fig_sr_hourly(sr_df, compact=sr_phone), use_container_width=True)
+    if sr_snow:
+        sr_note = (
+            "Snowfall is the model's own accumulated snowfall (RRFS ASNOW), in inches of snow, "
+            "so it uses the model's snow-to-liquid ratio and its 3 km terrain height. In "
+            "mountain valleys and on ridges that terrain can sit hundreds of feet from the "
+            "real spot, which moves the snow line."
+        )
+        if sr_mean_col == "Member mean":
+            sr_note += " The mean here is the average of the five RRFS members."
+        st.info(sr_note)
+    st.markdown(f"**Accumulated {sr_what}**")
+    st.plotly_chart(forecast.fig_sr_cumulative(sr_df, compact=sr_phone, what=sr_what),
+                    use_container_width=True)
+    st.markdown(f"**Hourly {sr_what}**")
+    st.plotly_chart(forecast.fig_sr_hourly(sr_df, compact=sr_phone, what=sr_what),
+                    use_container_width=True)
     st.markdown("**Totals by Pacific day (inches)**")
     st.dataframe(forecast.sr_day_table(sr_df), use_container_width=True)
     st.caption("* partial day (the run starts or ends partway through it).")
