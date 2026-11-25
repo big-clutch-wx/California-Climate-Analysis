@@ -15,7 +15,7 @@ SETUP
   1. A CDS account and API key (the same ~/.cdsapirc the other builder uses, or
      pass --key / set CDSAPI_KEY). If the store answers 401 or 403, accept the
      ERA5 licence on the dataset page in the CDS website and try again.
-  2. pip install xarray zarr fsspec aiohttp requests numpy pandas
+  2. pip install xarray zarr fsspec aiohttp requests numpy pandas truststore
   3. Keep this file in the same folder as build_z500_archive.py (it reuses it).
 
 RUN
@@ -36,6 +36,17 @@ not averaged, so values differ slightly from the CDS 2.5 degree download).
 import argparse
 import os
 from pathlib import Path
+
+# Check HTTPS certificates with the operating system's trust store (as browsers and
+# curl do) instead of Python's own chain building. Certificate checking stays on.
+# Fixes "certificate has expired" errors when Python picks an outdated chain that
+# Windows does not. Must run before xarray/fsspec/aiohttp are imported.
+try:
+    import truststore
+
+    truststore.inject_into_ssl()
+except ImportError:
+    pass
 
 import numpy as np
 import pandas as pd
