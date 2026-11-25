@@ -79,6 +79,22 @@ def archive_candidates():
     return out
 
 
+def check_archive(arch):
+    """Refuse an archive whose fields are flat east-west or north-south (a build bug)."""
+    z = arch["z"]
+    sample = z[:: max(1, len(z) // 200)].astype(float)
+    sample[sample == MISSING_Z] = np.nan
+    across_lon = float(np.nanmean(np.nanstd(sample, axis=2)))
+    across_lat = float(np.nanmean(np.nanstd(sample, axis=1)))
+    if across_lon < 1.0 or across_lat < 1.0:
+        raise ValueError(
+            "The 500 hPa archive is not usable: its fields do not vary like real heights "
+            f"(spread across longitude {across_lon:.2f} m, across latitude {across_lat:.2f} m). "
+            "It was probably built incorrectly. Rebuild it with build_z500_archive_arco.py "
+            "(current version) or build_z500_archive.py."
+        )
+
+
 def load_archive(source=None):
     """Return (archive dict, where it came from). Raises FileNotFoundError if none works."""
     errors = []
@@ -95,6 +111,7 @@ def load_archive(source=None):
                 continue
             with np.load(handle) as z:
                 arch = {k: z[k] for k in ("dates", "lat", "lon", "z")}
+            check_archive(arch)
             return arch, str(src)
         except Exception as exc:  # noqa: BLE001 - try the next place
             errors.append(f"{src}: {exc}")
