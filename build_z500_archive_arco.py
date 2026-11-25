@@ -59,7 +59,7 @@ URL = ("https://arco.datastores.ecmwf.int/cadl-arco-geo-048/arco/"
 LAT_NAMES = ("latitude", "lat")
 LON_NAMES = ("longitude", "lon")
 TIME_NAMES = ("time", "valid_time")
-LEVEL_NAMES = ("pressureLevels", "pressure_level", "level", "isobaricInhPa", "plev")
+LEVEL_NAMES = ("pressureLevel", "pressureLevels", "pressure_level", "level", "isobaricInhPa", "plev")
 VAR_NAMES = ("geopotential", "z")
 
 WANT_LAT = np.arange(20.0, 65.0 + 1e-6, 2.5)
