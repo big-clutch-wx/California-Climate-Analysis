@@ -20,10 +20,11 @@ SETUP
 
 RUN
   python build_z500_archive_arco.py --inspect     # look at the store, download nothing
+  python build_z500_archive_arco.py --diagnose    # read one day three ways, check east-west variation
   python build_z500_archive_arco.py               # build the archive
   python build_z500_archive_arco.py --start 1979  # shorter record
 
-  Completed years are saved in ./era5_z500_arco_cache/ and skipped on the next
+  Completed years are saved in ./era5_z500_arco_cache_v2/ and skipped on the next
   run, so it can be stopped and resumed. The newest (partial) year is always
   read again, so running it later extends the record to about five days
   behind real time.
@@ -124,14 +125,83 @@ def describe(ds):
 
 def nearest_index(values, want, circular=False):
     values = np.asarray(values, dtype=float)
-    diff = np.abs(values[:, None] - want[None, :])
+    delta = values[:, None] - want[None, :]
     if circular:
-        diff = np.minimum(diff, 360.0 - diff)
+        diff = np.abs((delta + 180.0) % 360.0 - 180.0)      # shortest way round the globe, always >= 0
+    else:
+        diff = np.abs(delta)
     idx = diff.argmin(axis=0)
     worst = diff[idx, np.arange(len(want))].max()
     if worst > 0.01:
         raise SystemExit(f"Grid does not contain the 2.5 degree points (off by up to {worst:.3f} degrees).")
     return idx
+
+
+def axis_plan(coord_values, want, circular=False):
+    """How to read the wanted points with plain strided slicing: (slice, flip).
+
+    Plain slices are the most dependable way to read a Zarr array; fancy
+    (list) indexing across several axes at once is avoided on purpose.
+    """
+    idx = nearest_index(coord_values, want, circular)
+    steps = np.diff(idx)
+    if len(steps) == 0 or steps[0] == 0 or not np.all(steps == steps[0]):
+        raise SystemExit("The wanted grid points are not evenly spaced in the store "
+                         f"(index steps {sorted(set(steps.tolist()))[:5]}).")
+    s = int(steps[0])
+    if s > 0:
+        return slice(int(idx[0]), int(idx[-1]) + 1, s), False
+    return slice(int(idx[-1]), int(idx[0]) + 1, -s), True
+
+
+def check_variation(z, label):
+    """Real 500 hPa fields vary both north-south and east-west. Refuse anything flat."""
+    across_lon = float(np.nanmean(np.nanstd(z, axis=2)))
+    across_lat = float(np.nanmean(np.nanstd(z, axis=1)))
+    if across_lon < 1.0 or across_lat < 1.0:
+        raise SystemExit(
+            f"{label}: the fields do not vary like real 500 hPa heights (mean spread across "
+            f"longitude {across_lon:.2f} m, across latitude {across_lat:.2f} m). Nothing was written. "
+            "Run with --diagnose and send me the output."
+        )
+
+
+def diagnose(da, tdim, latd, lond, times, ds):
+    """Read one day three different ways and report east-west spread, to find where data goes wrong."""
+    ts = pd.DatetimeIndex(times)
+    hit = np.nonzero((ts.year == 2017) & (ts.month == 2) & (ts.day == 7) & (ts.hour == 12))[0]
+    if len(hit) == 0:                              # store does not cover Feb 2017: use a 12 UTC step mid-record
+        twelve = np.nonzero(ts.hour == 12)[0]
+        hit = twelve[len(twelve) // 2: len(twelve) // 2 + 1]
+    k = int(hit[0])
+    lat, lon = ds[latd].values, ds[lond].values
+    la0, la1 = nearest_index(lat, np.array([20.0]))[0], nearest_index(lat, np.array([65.0]))[0]
+    lo0 = nearest_index(lon, np.array([-180.0 % 360.0]), circular=True)[0]
+    lo1 = nearest_index(lon, np.array([-90.0 % 360.0]), circular=True)[0]
+    la_lo, la_hi = sorted((int(la0), int(la1)))
+    j_lo, j_hi = sorted((int(lo0), int(lo1)))
+    i45 = nearest_index(lat, np.array([45.0]))[0] - la_lo
+    print(f"day {ts[k]}  lat rows {la_lo}..{la_hi}  lon cols {j_lo}..{j_hi}  (row for 45N = {i45})")
+
+    def report(name, arr):
+        arr = np.asarray(arr, dtype=float)
+        row = arr[min(i45, arr.shape[0] - 1)] if arr.ndim == 2 else None
+        print(f"  {name}: shape {arr.shape}, spread across longitude {np.nanstd(arr, axis=1).mean():.1f}, "
+              f"spread across latitude {np.nanstd(arr, axis=0).mean():.1f}")
+        if row is not None:
+            print(f"    45N row, 8 evenly spaced columns: {np.round(row[::max(1, len(row)//8)][:8], 0).tolist()}")
+
+    one = da.isel({tdim: k})
+    box = one.isel({latd: slice(la_lo, la_hi + 1), lond: slice(j_lo, j_hi + 1)}).transpose(latd, lond)
+    report("A  plain box, every 0.25 point", box.values)
+    st = max(1, int(round(2.5 / abs(float(lat[1] - lat[0])))))
+    report(f"C  plain box, every {st}th point", box.values[::st, ::st])
+    il = np.arange(la_lo, la_hi + 1, st)
+    jl = np.arange(j_lo, j_hi + 1, st)
+    fancy = one.isel({latd: il, lond: jl}).transpose(latd, lond)
+    report("B  list indexing (what the first version used)", fancy.values)
+    print("If A varies with longitude but B does not, the first version's list indexing was the bug.")
+    print("If A also does not vary, the store itself (or how it is opened) is the problem.")
 
 
 def main():
@@ -140,9 +210,11 @@ def main():
     ap.add_argument("--key")
     ap.add_argument("--start", type=int, default=1940)
     ap.add_argument("--end", type=int, default=9999)
-    ap.add_argument("--cache", default="era5_z500_arco_cache")
+    ap.add_argument("--cache", default="era5_z500_arco_cache_v2")
     ap.add_argument("--out", default="z500_12z_daily.npz")
     ap.add_argument("--inspect", action="store_true", help="print the store's layout and exit")
+    ap.add_argument("--diagnose", action="store_true",
+                    help="read one day three ways, print the east-west spread of each, and exit")
     args = ap.parse_args()
 
     key = find_key(args.key) if args.url.startswith("http") else None
@@ -156,11 +228,14 @@ def main():
     levels = np.asarray(ds[ldim].values, dtype=float)
     if 500 not in levels:
         raise SystemExit("The store has no 500 hPa level.")
-    ilat = nearest_index(ds[latd].values, WANT_LAT)
-    ilon = nearest_index(ds[lond].values, WANT_LON % 360.0, circular=True)
     lev500 = ds[ldim].values[int(np.nonzero(levels == 500)[0][0])]
-
     da = ds[var].sel({ldim: lev500})
+    if args.diagnose:
+        diagnose(da, tdim, latd, lond, times, ds)
+        return
+
+    lat_sl, lat_flip = axis_plan(ds[latd].values, WANT_LAT)
+    lon_sl, lon_flip = axis_plan(ds[lond].values, WANT_LON % 360.0, circular=True)
     mask12 = np.asarray(times.hour == 12)
     years = np.asarray(times.year)
     last_year = int(years.max())
@@ -171,23 +246,33 @@ def main():
     for year in range(max(args.start, int(years.min())), min(args.end, last_year) + 1):
         f = cache / f"z_{year}.npz"
         if year < last_year and f.exists():
-            with np.load(f) as z:
-                data.append((z["dates"].astype("datetime64[D]"), WANT_LAT, WANT_LON, z["z"]))
+            with np.load(f) as zf:
+                zc, dc = zf["z"], zf["dates"].astype("datetime64[D]")
+            check_variation(zc, f"{year} (cached)")
+            data.append((dc, WANT_LAT, WANT_LON, zc))
             print(f"{year}: from cache", flush=True)
             continue
         it = np.nonzero(mask12 & (years == year))[0]
         if len(it) == 0:
             continue
         print(f"{year}: reading {len(it)} days ...", flush=True)
-        sub = da.isel({tdim: it, latd: ilat, lond: ilon}).transpose(tdim, latd, lond).load()
-        z = sub.values.astype(np.float64) / B.G
+        a, b = int(it[0]), int(it[-1]) + 1
+        # One contiguous block of time steps with strided lat/lon slices, then pick the
+        # 12 UTC rows in memory. No list indexing anywhere.
+        block = da.isel({tdim: slice(a, b), latd: lat_sl, lond: lon_sl}).transpose(tdim, latd, lond).values
+        z = block[(it - a)].astype(np.float64) / B.G
+        if lat_flip:
+            z = z[:, ::-1]
+        if lon_flip:
+            z = z[:, :, ::-1]
         mean_z = float(np.nanmean(z))
         if not 4800 <= mean_z <= 5900:             # 500 hPa over 20-65N is roughly 5000-5800 m
             raise SystemExit(
                 f"{year}: the mean 500 hPa height came out as {mean_z:.0f} m, which is not "
-                f"plausible. The store's units are probably not m2/s2 (raw mean {sub.values.mean():.1f}, "
-                f"units attribute {sub.attrs.get('units')!r}). Nothing was written."
+                f"plausible. The store's units are probably not m2/s2 (units attribute "
+                f"{da.attrs.get('units')!r}). Nothing was written."
             )
+        check_variation(z, str(year))
         dates = times[it].values.astype("datetime64[D]")
         if year < last_year:                       # only completed years are cached
             np.savez_compressed(f, dates=dates.astype("int64"), z=z)
@@ -196,6 +281,7 @@ def main():
     if not data:
         raise SystemExit("Nothing was read.")
     arch = B.pack(data)
+    check_variation(arch["z"][:: max(1, len(arch["z"]) // 200)].astype(float), "final archive")
     np.savez_compressed(args.out, **arch)
     d = arch["dates"].astype("int64").astype("datetime64[D]")
     print(f"Wrote {args.out}: {len(d)} days, {d[0]} to {d[-1]}, grid {arch['z'].shape[1]}x{arch['z'].shape[2]}")
