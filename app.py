@@ -2929,7 +2929,7 @@ elif analysis_mode == "Analog Search":
     c1, c2 = st.columns(2)
     with c1:
         an_source = st.radio("Target pattern",
-                             ["AIFS forecast", "A past date (test)"],
+                             ["AIFS forecast", "A past date"],
                              key="an_source", horizontal=True)
     with c2:
         an_res = st.radio("Match grid", ["5 degrees (faster)", "2.5 degrees"],
@@ -3034,8 +3034,8 @@ elif analysis_mode == "Analog Search":
             st.stop()
         an_exclude = an_date
         an_target_name = f"{an_date:%b %d, %Y} (past)"
-        st.caption("Test mode: that day and the days around it are left out of the search. "
-                   "Use it to see what the method returns for a storm you already know.")
+        st.caption("That day and the days around it are left out of the search. Use this to "
+                   "see which other dates looked like a storm you already know.")
 
     # ---- rank ----------------------------------------------------------
     try:
@@ -3127,7 +3127,7 @@ elif analysis_mode == "Analog Search":
     st.caption(
         f"Target: {an_target_name}. Searched {int(np.isfinite(an_prep.anom[:, an_iy[0], an_ix[0]]).sum()):,} "
         f"days, {an_first:%Y} to {an_last:%b %d, %Y}, over {an_domain_name}. "
-        "Colours are 500 hPa height anomalies in metres (red high, blue low); the black "
+        "Colours are 500 hPa height anomalies in decameters, dam (10 m; red high, blue low); the black "
         "outline is California."
     )
     _lat = an_prep.lat[an_ys]
@@ -3145,7 +3145,8 @@ elif analysis_mode == "Analog Search":
     st.plotly_chart(
         analogs.fig_pattern_maps(_panels, _lat, _lon, outline=_outline,
                                  ncols=2 if an_phone else 3,
-                                 height_per_row=230 if an_phone else 300),
+                                 height_per_row=230 if an_phone else 300,
+                                 scale=10.0, unit="dam"),
         use_container_width=True,
     )
 
@@ -3155,7 +3156,7 @@ elif analysis_mode == "Analog Search":
         "Rank": an_ranked["rank"],
         "Date": an_ranked["date"].dt.strftime("%Y-%m-%d"),
         "Pattern corr": an_ranked["corr"].round(3),
-        "RMSE (m)": an_ranked["rmse_m"].round(1),
+        "RMSE (dam)": (an_ranked["rmse_m"] / 10).round(1),
         "Amplitude vs target": an_ranked["amp_ratio"].round(2),
         "MJO (RMM)": an_ranked["MJO"],
     })
@@ -3163,6 +3164,9 @@ elif analysis_mode == "Analog Search":
         show["Precip (in)"] = an_ranked["precip_in"].round(2)
         show["Stations reporting"] = an_ranked["stations"]
     st.dataframe(show, use_container_width=True, hide_index=True)
+    if an_outcome:
+        st.caption(f"Precip (in) is the average over the stations that reported in: {an_scope}. "
+                   "The sidebar region selector sets this.")
     st.download_button("Download table (CSV)", show.to_csv(index=False).encode("utf-8"),
                        file_name="analog_search.csv", mime="text/csv", key="an_csv")
 
@@ -3182,7 +3186,7 @@ elif analysis_mode == "Analog Search":
     with st.expander("How to read this"):
         st.markdown(
             "- **Pattern correlation** says how closely the shape of the troughs and ridges "
-            "matches (1 is identical). **RMSE** is the typical height difference in metres. "
+            "matches (1 is identical). **RMSE** is the typical height difference in decameters (1 dam = 10 m). "
             "**Amplitude** is the analog's anomaly size divided by the target's: below 1 "
             "means the analog was weaker.\n"
             "- A high correlation with a low amplitude is the right setup but a weaker "
