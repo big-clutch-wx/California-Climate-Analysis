@@ -745,6 +745,7 @@ mode_choice = st.sidebar.radio(
         "Regional Forecast (WN2)",
         "Single-Point Forecast (Model Blend)",
         "Seasonal Forecast (SEAS5)",
+        "Analog Search",
     ],
     index=0,
 )
@@ -2901,6 +2902,300 @@ elif analysis_mode == "Short-Range Forecast":
     st.markdown("**Totals by Pacific day (inches)**")
     st.dataframe(forecast.sr_day_table(sr_df), use_container_width=True)
     st.caption("* partial day (the run starts or ends partway through it).")
+
+elif analysis_mode == "Analog Search":
+
+    import numpy as np
+
+    try:
+        import analogs
+    except ImportError:
+        st.error("analogs.py is missing from the app folder.")
+        st.stop()
+
+    st.header("Analog Search (500 hPa)")
+    st.caption(
+        "Finds the days in the ERA5 record (1940 to now) whose 500 hPa height anomaly "
+        "pattern is closest to an AIFS forecast, so you can see what happened next in "
+        "similar setups. Heights are 12 UTC. Anomalies are measured against a smooth "
+        "1991-2020 seasonal cycle, so a match is not just the same time of year. The "
+        "list is not a forecast: with about 85 years of record, even the best matches "
+        "differ from the target."
+    )
+    an_phone = st.toggle("Phone-friendly charts", key="an_phone_view",
+                         value=looks_like_phone())
+
+    # ---- controls ------------------------------------------------------
+    c1, c2 = st.columns(2)
+    with c1:
+        an_source = st.radio("Target pattern",
+                             ["AIFS forecast", "A past date (test)"],
+                             key="an_source", horizontal=True)
+    with c2:
+        an_res = st.radio("Match grid", ["5 degrees (faster)", "2.5 degrees"],
+                          key="an_res", horizontal=True)
+    an_stride = 2 if an_res.startswith("5") else 1
+
+    an_domain_name = st.selectbox("Domain to match", list(analogs.DOMAINS), index=0,
+                                  key="an_domain")
+    an_domain = analogs.DOMAINS[an_domain_name]
+
+    c3, c4, c5 = st.columns(3)
+    with c3:
+        an_window = st.select_slider(
+            "Season window", options=[15, 30, 45, 60, 90, 183], value=183,
+            format_func=lambda v: "Whole year" if v >= 183 else f"+/- {v} days",
+            key="an_window",
+            help="Only consider days this close to the target's date of year. "
+                 "'Whole year' searches the entire record.")
+    with c4:
+        an_n = st.slider("Analogs to show", 3, 15, 9, key="an_n")
+    with c5:
+        an_sep = st.slider("Min days between analogs", 1, 15, 5, key="an_sep",
+                           help="Keeps one storm from filling the list with consecutive days.")
+    c6, c7, c8 = st.columns(3)
+    with c6:
+        an_by_label = st.radio("Rank by", ["Pattern correlation", "RMSE"],
+                               key="an_by", horizontal=True)
+    with c7:
+        an_detrend = st.checkbox("Remove long-term trend", value=True, key="an_detrend",
+                                 help="500 hPa heights rose over the record. Without this, "
+                                      "recent dates are favoured when the forecast is high.")
+    with c8:
+        an_outcome = st.checkbox("Show California precipitation", value=True,
+                                 key="an_outcome",
+                                 help="Uses the region(s) selected in the sidebar.")
+
+    # ---- the archive ---------------------------------------------------
+    @st.cache_resource(show_spinner="Loading the ERA5 500 hPa archive...")
+    def cached_analog_prep(stride, detrend):
+        arch, where = analogs.load_archive()
+        return analogs.prepare(arch, stride=stride, detrend=detrend), where
+
+    try:
+        an_prep, an_where = cached_analog_prep(an_stride, an_detrend)
+    except FileNotFoundError as exc:
+        st.error(str(exc))
+        st.stop()
+    except Exception as exc:  # noqa: BLE001
+        st.error(f"Could not read the 500 hPa archive: {exc}")
+        st.stop()
+
+    an_first = pd.Timestamp(an_prep.dates[0])
+    an_last = pd.Timestamp(an_prep.dates[-1])
+    an_iy, an_ix = analogs.domain_slices(an_prep, an_domain)
+    an_ys = slice(an_iy[0], an_iy[-1] + 1)
+    an_xs = slice(an_ix[0], an_ix[-1] + 1)
+
+    # ---- the target ----------------------------------------------------
+    an_today = pd.Timestamp.now(tz="America/Los_Angeles").tz_localize(None).normalize()
+    an_exclude = None
+    if an_source == "AIFS forecast":
+        _ct, _cb = st.columns([3, 1])
+        with _ct:
+            an_date = pd.Timestamp(st.date_input(
+                "Forecast valid date (12 UTC)",
+                value=(an_today + pd.Timedelta(days=3)).date(),
+                min_value=an_today.date(),
+                max_value=(an_today + pd.Timedelta(days=15)).date(),
+                key="an_valid_date",
+            ))
+        with _cb:
+            an_refresh = forecast_refresh_button("an_update_btn")
+
+        @st.cache_data(ttl=6 * 3600, show_spinner="Fetching the AIFS 500 hPa field...")
+        def cached_aifs_z500(lat_key, lon_key, day_key, refresh):
+            return analogs.fetch_aifs_z500(list(lat_key), list(lon_key), day_key)
+
+        try:
+            sub = cached_aifs_z500(
+                tuple(float(v) for v in an_prep.lat[an_ys]),
+                tuple(float(v) for v in an_prep.lon[an_xs]),
+                an_date.strftime("%Y-%m-%d"), an_refresh,
+            )
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"Could not get the AIFS field: {exc}")
+            st.stop()
+        full = np.full((len(an_prep.lat), len(an_prep.lon)), np.nan)
+        full[an_ys, an_xs] = sub
+        an_target = analogs.target_from_field(an_prep, full, an_date)
+        an_target_name = f"AIFS {an_date:%b %d, %Y}"
+    else:
+        an_date = pd.Timestamp(st.date_input(
+            "Past date to use as the target",
+            value=min(pd.Timestamp("2017-02-07"), an_last).date(),
+            min_value=an_first.date(), max_value=an_last.date(),
+            key="an_past_date",
+        ))
+        try:
+            an_target = analogs.target_from_history(an_prep, an_date)
+        except KeyError as exc:
+            st.error(str(exc))
+            st.stop()
+        an_exclude = an_date
+        an_target_name = f"{an_date:%b %d, %Y} (past)"
+        st.caption("Test mode: that day and the days around it are left out of the search. "
+                   "Use it to see what the method returns for a storm you already know.")
+
+    # ---- rank ----------------------------------------------------------
+    try:
+        an_ranked = analogs.rank_analogs(
+            an_prep, an_target, an_domain, n=an_n, window_days=an_window,
+            target_date=an_date, min_sep_days=an_sep,
+            by="corr" if an_by_label.startswith("Pattern") else "rmse",
+            exclude_date=an_exclude,
+        )
+    except ValueError as exc:
+        st.error(str(exc))
+        st.stop()
+    if an_ranked.empty:
+        st.warning("No days matched. Widen the season window.")
+        st.stop()
+
+    # ---- MJO labels ----------------------------------------------------
+    @st.cache_data(ttl=12 * 3600, show_spinner=False)
+    def cached_mjo():
+        try:
+            return analogs.load_mjo()
+        except Exception:  # noqa: BLE001 - labels are optional
+            return None
+
+    an_mjo = cached_mjo()
+    an_ranked["MJO"] = [analogs.mjo_label(an_mjo, d) for d in an_ranked["date"]]
+
+    # ---- California outcome -------------------------------------------
+    @st.cache_data(show_spinner="Reading station precipitation...")
+    def cached_analog_outcomes(ids, date_keys, ndays):
+        specs = []
+        for dk in date_keys:
+            d0 = pd.Timestamp(dk)
+            specs.append({
+                "start": d0.strftime("%Y-%m-%d"),
+                "end": (d0 + pd.Timedelta(days=ndays - 1)).strftime("%Y-%m-%d"),
+                "label": dk,
+            })
+        daily = query_daily_comparison_series(list(ids), specs)
+        n_ids = len(ids)
+        daily["mean_reporting"] = np.where(
+            daily["station_count"] > 0,
+            daily["daily_precip"] * n_ids / daily["station_count"].clip(lower=1),
+            0.0,
+        )
+        out = daily.groupby("period_label").agg(
+            precip_in=("mean_reporting", "sum"),
+            stations=("station_count", "max"),
+        )
+        out.loc[out["stations"] == 0, "precip_in"] = np.nan
+        return out
+
+    an_ndays = 1
+    if an_outcome:
+        an_ndays = st.radio("Precipitation window", [1, 3], horizontal=True, key="an_ndays",
+                            format_func=lambda v: "Analog day" if v == 1
+                            else "Analog day + next 2 days")
+        try:
+            _meta = load_metadata(str(DATA_DIR))
+            _hydro = [r for r in selected_regions if r != "California"]
+            if _hydro:
+                _ids = sorted(build_region_map(tuple(_meta.items()), tuple(_hydro)).keys())
+                _scope = ", ".join(_hydro)
+            else:
+                _poly = regions["California"]["polygon"]
+                _ids = sorted(
+                    sid for sid, m in _meta.items()
+                    if engine.point_in_polygon((m["lat"], m["lon"]), _poly)
+                )
+                _scope = "California"
+            _oc = cached_analog_outcomes(
+                tuple(_ids),
+                tuple(d.strftime("%Y-%m-%d") for d in an_ranked["date"]),
+                an_ndays,
+            )
+            an_ranked["precip_in"] = [
+                _oc["precip_in"].get(d.strftime("%Y-%m-%d"), np.nan) for d in an_ranked["date"]
+            ]
+            an_ranked["stations"] = [
+                int(_oc["stations"].get(d.strftime("%Y-%m-%d"), 0)) for d in an_ranked["date"]
+            ]
+            an_scope = f"{_scope} ({len(_ids)} stations)"
+        except Exception as exc:  # noqa: BLE001
+            st.warning(f"Could not read station precipitation: {exc}")
+            an_outcome = False
+
+    # ---- maps ----------------------------------------------------------
+    st.subheader("Pattern match")
+    st.caption(
+        f"Target: {an_target_name}. Searched {int(np.isfinite(an_prep.anom[:, an_iy[0], an_ix[0]]).sum()):,} "
+        f"days, {an_first:%Y} to {an_last:%b %d, %Y}, over {an_domain_name}. "
+        "Colours are 500 hPa height anomalies in metres (red high, blue low); the black "
+        "outline is California."
+    )
+    _lat = an_prep.lat[an_ys]
+    _lon = an_prep.lon[an_xs]
+    _crop = lambda f: np.asarray(f)[an_ys, an_xs]
+    _panels = [(f"Target: {an_target_name}", _crop(an_target)),
+               (f"Mean of top {len(an_ranked)}",
+                _crop(analogs.composite(an_prep, an_ranked["index"])))]
+    for _, row in an_ranked.iterrows():
+        _panels.append((f"#{row['rank']} {row['date']:%Y-%m-%d}  r={row['corr']:.2f}",
+                        _crop(analogs.analog_field(an_prep, row["index"]))))
+    _outline = list(regions["California"]["polygon"])
+    if _outline and _outline[0] != _outline[-1]:
+        _outline.append(_outline[0])
+    st.plotly_chart(
+        analogs.fig_pattern_maps(_panels, _lat, _lon, outline=_outline,
+                                 ncols=2 if an_phone else 3,
+                                 height_per_row=230 if an_phone else 300),
+        use_container_width=True,
+    )
+
+    # ---- table ---------------------------------------------------------
+    st.subheader("Closest analogs")
+    show = pd.DataFrame({
+        "Rank": an_ranked["rank"],
+        "Date": an_ranked["date"].dt.strftime("%Y-%m-%d"),
+        "Pattern corr": an_ranked["corr"].round(3),
+        "RMSE (m)": an_ranked["rmse_m"].round(1),
+        "Amplitude vs target": an_ranked["amp_ratio"].round(2),
+        "MJO (RMM)": an_ranked["MJO"],
+    })
+    if an_outcome:
+        show["Precip (in)"] = an_ranked["precip_in"].round(2)
+        show["Stations reporting"] = an_ranked["stations"]
+    st.dataframe(show, use_container_width=True, hide_index=True)
+    st.download_button("Download table (CSV)", show.to_csv(index=False).encode("utf-8"),
+                       file_name="analog_search.csv", mime="text/csv", key="an_csv")
+
+    if an_outcome and an_ranked["precip_in"].notna().any():
+        _p = an_ranked["precip_in"].dropna()
+        st.markdown(
+            f"**{an_scope}, {'analog day' if an_ndays == 1 else 'analog day + next 2 days'}:** "
+            f"mean {_p.mean():.2f} in, median {_p.median():.2f} in, "
+            f"range {_p.min():.2f} to {_p.max():.2f} in across {len(_p)} analogs."
+        )
+        st.caption(
+            "Each value is the average over the stations that reported, summed over the "
+            "window. Station coverage changes a lot over the record, so check the "
+            "'Stations reporting' column before comparing dates."
+        )
+
+    with st.expander("How to read this"):
+        st.markdown(
+            "- **Pattern correlation** says how closely the shape of the troughs and ridges "
+            "matches (1 is identical). **RMSE** is the typical height difference in metres. "
+            "**Amplitude** is the analog's anomaly size divided by the target's: below 1 "
+            "means the analog was weaker.\n"
+            "- A high correlation with a low amplitude is the right setup but a weaker "
+            "version of it.\n"
+            "- **MJO (RMM)** is the Wheeler-Hendon index from the Bureau of Meteorology, "
+            "available from 1974. 'Weak' means amplitude under 1. Blank means no value.\n"
+            "- The matching uses only 500 hPa. It says nothing about moisture, so an "
+            "analog with the right trough can still have been dry. Treat the precipitation "
+            "column as context, not a forecast.\n"
+            f"- Archive: `{an_where}`. The AIFS field comes from Open-Meteo "
+            f"(`{analogs.AIFS_MODEL}`), which does not report the model run time, so "
+            "check it against ECMWF's own charts if the date matters."
+        )
 
 elif analysis_mode == "Extremes / Records":
     st.header("Extremes / Records")
