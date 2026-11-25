@@ -2,9 +2,9 @@
 build_z500_archive.py - one-time (then occasional) build of the 500 hPa archive
 that analogs.py reads.
 
-Downloads ERA5 500 hPa geopotential at 12 UTC, one file per year, from the
-Copernicus Climate Data Store, converts it to height in metres, and packs the
-lot into z500_12z_daily.npz (about 30-45 MB).
+Downloads ERA5 500 hPa geopotential at 12 UTC from the Copernicus Climate Data
+Store, a block of years per request, converts it to height in metres, and packs
+the lot into z500_12z_daily.npz (about 30-45 MB).
 
 You run this on your own computer, not inside the Streamlit app.
 
@@ -15,19 +15,20 @@ SETUP (once)
   3. pip install cdsapi xarray netCDF4 numpy
 
 RUN
-  python build_z500_archive.py                    # 1940 to this year
-  python build_z500_archive.py --start 1979       # shorter record, much faster
-  python build_z500_archive.py --refresh-current  # top up the newest year later
+  python build_z500_archive.py                    # 1940 through last year
+  python build_z500_archive.py --start 1979       # shorter record, faster
+  python build_z500_archive.py --chunk 5          # smaller requests if one is refused
 
-  Each year is a separate request and is saved in ./era5_z500_cache/, so an
-  interrupted run resumes where it stopped. The CDS queue decides the speed;
-  expect hours for the full record.
+  Years are requested --chunk at a time (default 10), so there are only a handful
+  of waits in the CDS queue. Every download is saved in ./era5_z500_cache/ and
+  years already there are skipped, so an interrupted run resumes where it
+  stopped. The queue decides the speed.
 
 PUBLISH
   Put z500_12z_daily.npz next to app.py, or upload it to the cawn2 bucket as
-  analogs/z500_12z_daily.npz (analogs.py checks both). Re-run with
-  --refresh-current now and then to extend the record. ERA5 lags real time by
-  about five days.
+  analogs/z500_12z_daily.npz (analogs.py checks both). The archive stops at the
+  end of last year; the current year is not requested because ERA5 trails real
+  time by several days and a request for dates that do not exist yet may fail.
 
 Grid: 20-65N, 180-90W at 2.5 degrees, which covers the domains in analogs.py.
 """
@@ -95,7 +96,7 @@ def read_year(path):
     return times.astype("datetime64[D]"), lat[ilat], lon[ilon], z
 
 
-def download_year(year, target):
+def download_years(years, target):
     import cdsapi
 
     client = cdsapi.Client()
@@ -105,7 +106,7 @@ def download_year(year, target):
             "product_type": ["reanalysis"],
             "variable": ["geopotential"],
             "pressure_level": ["500"],
-            "year": [str(year)],
+            "year": [str(y) for y in years],
             "month": [f"{m:02d}" for m in range(1, 13)],
             "day": [f"{d:02d}" for d in range(1, 32)],
             "time": ["12:00"],
@@ -118,29 +119,65 @@ def download_year(year, target):
     )
 
 
+def cached_files(cache):
+    """{(first_year, last_year): path} for files named era5_z500_<y>.nc or era5_z500_<y0>_<y1>.nc."""
+    found = {}
+    for f in Path(cache).glob("era5_z500_*.nc"):
+        parts = f.stem.split("_")[2:]
+        try:
+            found[(int(parts[0]), int(parts[-1]))] = f
+        except (ValueError, IndexError):
+            continue
+    return found
+
+
+def plan_chunks(missing_years, size):
+    """Group sorted missing years into runs of consecutive years, at most `size` long."""
+    chunks, run = [], []
+    for y in sorted(missing_years):
+        if run and (y != run[-1] + 1 or len(run) >= size):
+            chunks.append(run)
+            run = []
+        run.append(y)
+    if run:
+        chunks.append(run)
+    return chunks
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--start", type=int, default=1940)
-    ap.add_argument("--end", type=int, default=dt.date.today().year)
+    ap.add_argument("--end", type=int, default=dt.date.today().year - 1)
+    ap.add_argument("--chunk", type=int, default=10, help="years per CDS request")
     ap.add_argument("--cache", default="era5_z500_cache")
     ap.add_argument("--out", default="z500_12z_daily.npz")
-    ap.add_argument("--refresh-current", action="store_true",
-                    help="re-download the current year even if it is cached")
     args = ap.parse_args()
 
     cache = Path(args.cache)
     cache.mkdir(exist_ok=True)
-    this_year = dt.date.today().year
+    wanted = range(args.start, args.end + 1)
+
+    have = set()
+    for (y0, y1) in cached_files(cache):
+        have.update(range(y0, y1 + 1))
+    missing = [y for y in wanted if y not in have]
+    chunks = plan_chunks(missing, args.chunk)
+    print(f"{len(have & set(wanted))} years cached, {len(missing)} to request in {len(chunks)} request(s).",
+          flush=True)
+    for run in chunks:
+        f = cache / (f"era5_z500_{run[0]}.nc" if len(run) == 1 else f"era5_z500_{run[0]}_{run[-1]}.nc")
+        print(f"Requesting {run[0]}-{run[-1]} from CDS (this waits in the queue) ...", flush=True)
+        download_years(run, f)
+        print(f"  saved {f.name}", flush=True)
+
     data = []
-    for year in range(args.start, args.end + 1):
-        f = cache / f"era5_z500_{year}.nc"
-        if args.refresh_current and year == this_year and f.exists():
-            f.unlink()
-        if not f.exists():
-            print(f"{year}: requesting from CDS ...", flush=True)
-            download_year(year, f)
+    for (y0, y1), f in sorted(cached_files(cache).items()):
+        if y1 < args.start or y0 > args.end:
+            continue
         data.append(read_year(f))
-        print(f"{year}: {len(data[-1][0])} days", flush=True)
+        print(f"read {f.name}: {len(data[-1][0])} days", flush=True)
+    if not data:
+        raise SystemExit("Nothing downloaded.")
 
     arch = pack(data)
     np.savez_compressed(args.out, **arch)
