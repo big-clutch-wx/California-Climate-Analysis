@@ -433,7 +433,8 @@ def mjo_label(mjo, date):
 # Figures
 # ---------------------------------------------------------------------------
 
-def fig_pattern_maps(panels, lat, lon, outline=None, zmax=None, ncols=3, height_per_row=300):
+def fig_pattern_maps(panels, lat, lon, outline=None, zmax=None, ncols=3, height_per_row=300,
+                     scale=1.0, unit="m"):
     """Small multiples of 500 hPa anomaly maps.
 
     panels: list of (title, 2-D anomaly field [ny, nx]). All share one symmetric
@@ -445,9 +446,13 @@ def fig_pattern_maps(panels, lat, lon, outline=None, zmax=None, ncols=3, height_
     n = len(panels)
     ncols = max(1, min(ncols, n))
     nrows = int(np.ceil(n / ncols))
+    # scale: divide the fields (metres) by this to show other units, e.g. scale=10, unit="dam".
+    panels = [(t, np.asarray(f, dtype=float) / scale) for t, f in panels]
     if zmax is None:
+        step, floor = 20.0 / scale, 60.0 / scale
         zmax = max(float(np.nanmax(np.abs(f))) for _, f in panels)
-        zmax = max(60.0, float(np.ceil(zmax / 20.0) * 20.0))
+        zmax = max(floor, float(np.ceil(zmax / step) * step))
+    hover_fmt = ".0f" if scale == 1 else ".1f"
 
     fig = make_subplots(rows=nrows, cols=ncols,
                         subplot_titles=[t for t, _ in panels],
@@ -459,8 +464,8 @@ def fig_pattern_maps(panels, lat, lon, outline=None, zmax=None, ncols=3, height_
                 z=field, x=lon, y=lat, zmin=-zmax, zmax=zmax, zmid=0,
                 colorscale="RdBu_r", zsmooth="best",
                 showscale=(k == 0),
-                colorbar=dict(title="m", len=0.6, thickness=12) if k == 0 else None,
-                hovertemplate="lon %{x}<br>lat %{y}<br>%{z:.0f} m<extra></extra>",
+                colorbar=dict(title=unit, len=0.6, thickness=12) if k == 0 else None,
+                hovertemplate="lon %{x}<br>lat %{y}<br>%{z:" + hover_fmt + "} " + unit + "<extra></extra>",
             ),
             row=r + 1, col=c + 1,
         )
