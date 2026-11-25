@@ -181,6 +181,13 @@ def main():
         print(f"{year}: reading {len(it)} days ...", flush=True)
         sub = da.isel({tdim: it, latd: ilat, lond: ilon}).transpose(tdim, latd, lond).load()
         z = sub.values.astype(np.float64) / B.G
+        mean_z = float(np.nanmean(z))
+        if not 4800 <= mean_z <= 5900:             # 500 hPa over 20-65N is roughly 5000-5800 m
+            raise SystemExit(
+                f"{year}: the mean 500 hPa height came out as {mean_z:.0f} m, which is not "
+                f"plausible. The store's units are probably not m2/s2 (raw mean {sub.values.mean():.1f}, "
+                f"units attribute {sub.attrs.get('units')!r}). Nothing was written."
+            )
         dates = times[it].values.astype("datetime64[D]")
         if year < last_year:                       # only completed years are cached
             np.savez_compressed(f, dates=dates.astype("int64"), z=z)
