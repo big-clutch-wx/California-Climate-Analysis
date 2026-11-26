@@ -2929,7 +2929,7 @@ elif analysis_mode == "Analog Search":
     c1, c2 = st.columns(2)
     with c1:
         an_source = st.radio("Target pattern",
-                             ["AIFS forecast", "A past date", "Ensemble members"],
+                             ["AIFS forecast", "Ensemble members", "A past date"],
                              key="an_source", horizontal=True)
     with c2:
         an_res = st.radio("Match grid", ["5 degrees (faster)", "2.5 degrees"],
