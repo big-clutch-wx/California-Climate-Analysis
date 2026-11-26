@@ -48,10 +48,6 @@ MISSING_Z = -32768
 BASE_PERIOD = (1991, 2020)
 HARMONICS = 3
 
-OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
-AIFS_MODEL = "ecmwf_aifs025_single"
-Z500_VAR = "geopotential_height_500hPa"
-
 # BoM publishes the Wheeler-Hendon RMM index back to 1974 as a text file.
 MJO_URL = "http://www.bom.gov.au/climate/mjo/graphics/rmm.74toRealtime.txt"
 
@@ -235,64 +231,60 @@ def target_from_history(prep, date):
 
 
 # ---------------------------------------------------------------------------
-# Fetching the AIFS target
+# Fetching the AIFS target (from the bucket, written by the wn2 job)
 # ---------------------------------------------------------------------------
 
-def _open_meteo_get(params):
-    resp = None
-    for attempt in range(2):
-        try:
-            resp = requests.get(OPEN_METEO_URL, params=params, timeout=60)
-        except requests.RequestException as exc:
-            raise RuntimeError(f"Could not reach Open-Meteo ({type(exc).__name__}).") from None
-        if resp.status_code != 429:
-            resp.raise_for_status()
-            return resp.json()
-        if attempt == 0:
-            time.sleep(min(float(resp.headers.get("Retry-After", 10)), 20))
-    raise RuntimeError("Open-Meteo is rate limiting right now. Wait a few minutes and retry.")
+AIFS_Z500_BASE = "https://storage.googleapis.com/cawn2/z500/aifs-single/"
 
 
-def fetch_aifs_z500(lat, lon, valid_date, hour_utc=12, model=AIFS_MODEL, batch=100):
-    """AIFS 500 hPa height (m) on the lat x lon grid for `valid_date` at `hour_utc`.
+@dataclass
+class AifsZ500:
+    """The newest AIFS single run's 12 UTC 500 hPa heights, published by the wn2 job."""
+    z: np.ndarray            # [day, lat, lon], metres
+    lat: np.ndarray
+    lon: np.ndarray
+    days: pd.DatetimeIndex   # valid dates (12 UTC)
+    init: pd.Timestamp       # model run time, UTC
 
-    Open-Meteo returns the model's own 0.25 degree grid cell nearest each point.
-    Returns an array [len(lat), len(lon)]. Raises if any point has no value, which
-    is what happens when the date is beyond the model's range.
-    """
-    day = pd.Timestamp(valid_date).strftime("%Y-%m-%d")
-    stamp = f"{day}T{hour_utc:02d}:00"
-    pts = [(float(la), float(lo)) for la in lat for lo in lon]
-    vals = np.full(len(pts), np.nan)
-    for s in range(0, len(pts), batch):
-        chunk = pts[s:s + batch]
-        data = _open_meteo_get({
-            "latitude": ",".join(f"{p[0]:.2f}" for p in chunk),
-            "longitude": ",".join(f"{p[1]:.2f}" for p in chunk),
-            "hourly": Z500_VAR,
-            "models": model,
-            "start_date": day,
-            "end_date": day,
-            "timezone": "GMT",
-        })
-        if isinstance(data, dict):
-            data = [data]
-        for k, item in enumerate(data):
-            hourly = item.get("hourly", {})
-            times = hourly.get("time", [])
-            series = hourly.get(Z500_VAR)
-            if series is None or stamp not in times:
-                continue
-            v = series[times.index(stamp)]
-            if v is not None:
-                vals[s + k] = v
-    if np.isnan(vals).any():
-        raise ValueError(
-            f"{model} returned no 500 hPa height for {int(np.isnan(vals).sum())} of "
-            f"{len(pts)} points on {stamp}Z. The date may be past the model's range, "
-            "or Open-Meteo does not serve this variable for this model."
-        )
-    return vals.reshape(len(lat), len(lon))
+    def field(self, lat, lon, valid_date):
+        """Heights (m) on the given lat x lon grid for one valid date."""
+        day = pd.Timestamp(valid_date).normalize()
+        where = np.flatnonzero(self.days == day)
+        if not len(where):
+            raise ValueError(f"The AIFS run from {self.init:%b %d %H}Z has no 12 UTC field for "
+                             f"{day:%b %d}. It covers {self.days[0]:%b %d} to {self.days[-1]:%b %d}.")
+        iy, ix = [], []
+        for vals, axis, out in ((lat, self.lat, iy), (lon, self.lon, ix)):
+            for v in vals:
+                k = int(np.argmin(np.abs(axis - float(v))))
+                if abs(axis[k] - float(v)) > 0.01:
+                    raise ValueError(f"The AIFS file has no grid point at {float(v):g}; its grid "
+                                     "does not match the ERA5 archive.")
+                out.append(k)
+        return self.z[where[0]][np.ix_(iy, ix)].astype("float64")
+
+
+def load_aifs_z500(base=AIFS_Z500_BASE):
+    """Newest AIFS single 500 hPa run from the bucket. Raises RuntimeError with a plain message."""
+    try:
+        meta = requests.get(base + "latest.json", timeout=30)
+        if meta.status_code == 404:
+            raise RuntimeError("No AIFS 500 hPa file has been published yet (the wn2 job writes "
+                               "z500/aifs-single/latest.json).")
+        meta.raise_for_status()
+        meta = meta.json()
+        resp = requests.get("https://storage.googleapis.com/cawn2/" + meta["file"], timeout=60)
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Could not reach the AIFS file in the bucket ({type(exc).__name__}).") from None
+    with np.load(io.BytesIO(resp.content)) as f:
+        z, lat, lon = f["z"], f["lat"], f["lon"]
+        days = pd.to_datetime(f["valid_days"].astype("int64"), unit="D")
+    if z.shape[0] != 1:
+        z = z[:1]                                         # single run: the one member
+    return AifsZ500(z=z[0].astype("float32"), lat=np.asarray(lat, "float64"),
+                    lon=np.asarray(lon, "float64"), days=pd.DatetimeIndex(days),
+                    init=pd.Timestamp(meta["init_utc"]).tz_localize(None))
 
 
 # ---------------------------------------------------------------------------

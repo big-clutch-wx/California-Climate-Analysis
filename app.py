@@ -2992,34 +2992,35 @@ elif analysis_mode == "Analog Search":
     an_exclude = None
     if an_source == "AIFS forecast":
         _ct, _cb = st.columns([3, 1])
-        with _ct:
-            an_date = pd.Timestamp(st.date_input(
-                "Forecast valid date (12 UTC)",
-                value=(an_today + pd.Timedelta(days=3)).date(),
-                min_value=an_today.date(),
-                max_value=(an_today + pd.Timedelta(days=15)).date(),
-                key="an_valid_date",
-            ))
         with _cb:
             an_refresh = forecast_refresh_button("an_update_btn")
 
-        @st.cache_data(ttl=6 * 3600, show_spinner="Fetching the AIFS 500 hPa field...")
-        def cached_aifs_z500(lat_key, lon_key, day_key, refresh):
-            return analogs.fetch_aifs_z500(list(lat_key), list(lon_key), day_key)
+        @st.cache_data(ttl=3600, show_spinner="Loading the AIFS 500 hPa run...")
+        def cached_aifs_run(refresh):
+            return analogs.load_aifs_z500()
 
         try:
-            sub = cached_aifs_z500(
-                tuple(float(v) for v in an_prep.lat[an_ys]),
-                tuple(float(v) for v in an_prep.lon[an_xs]),
-                an_date.strftime("%Y-%m-%d"), an_refresh,
-            )
+            an_aifs = cached_aifs_run(an_refresh)
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"Could not get the AIFS field: {exc}")
+            st.stop()
+        with _ct:
+            an_date = pd.Timestamp(st.date_input(
+                "Forecast valid date (12 UTC)",
+                value=min(max((an_today + pd.Timedelta(days=3)), an_aifs.days[0]), an_aifs.days[-1]).date(),
+                min_value=an_aifs.days[0].date(),
+                max_value=an_aifs.days[-1].date(),
+                key="an_valid_date",
+            ))
+        try:
+            sub = an_aifs.field(an_prep.lat[an_ys], an_prep.lon[an_xs], an_date)
         except Exception as exc:  # noqa: BLE001
             st.error(f"Could not get the AIFS field: {exc}")
             st.stop()
         full = np.full((len(an_prep.lat), len(an_prep.lon)), np.nan)
         full[an_ys, an_xs] = sub
         an_target = analogs.target_from_field(an_prep, full, an_date)
-        an_target_name = f"AIFS {an_date:%b %d, %Y}"
+        an_target_name = f"AIFS {an_date:%b %d, %Y} ({an_aifs.init:%b %d %H}Z run)"
     else:
         an_date = pd.Timestamp(st.date_input(
             "Past date to use as the target",
@@ -3196,9 +3197,8 @@ elif analysis_mode == "Analog Search":
             "- The matching uses only 500 hPa. It says nothing about moisture, so an "
             "analog with the right trough can still have been dry. Treat the precipitation "
             "column as context, not a forecast.\n"
-            f"- Archive: `{an_where}`. The AIFS field comes from Open-Meteo "
-            f"(`{analogs.AIFS_MODEL}`), which does not report the model run time, so "
-            "check it against ECMWF's own charts if the date matters."
+            f"- Archive: `{an_where}`. The AIFS field is the single ECMWF AIFS run, "
+            "taken from ECMWF open data by the wn2 job and refreshed a few times a day."
         )
 
 elif analysis_mode == "Extremes / Records":
