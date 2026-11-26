@@ -287,6 +287,95 @@ def load_aifs_z500(base=AIFS_Z500_BASE):
                     init=pd.Timestamp(meta["init_utc"]).tz_localize(None))
 
 
+Z500_BASE = "https://storage.googleapis.com/cawn2/z500/"
+MEMBER_MODELS = {"WN2": "wn2", "EPS": "eps", "AIFS-ENS": "aifs-ens"}
+
+
+@dataclass
+class MemberZ500:
+    """One ensemble's newest run: 12 UTC 500 hPa heights for every member."""
+    model: str
+    z: np.ndarray            # [member, day, lat, lon], metres
+    lat: np.ndarray
+    lon: np.ndarray
+    days: pd.DatetimeIndex
+    init: pd.Timestamp
+
+    @property
+    def n_members(self):
+        return int(self.z.shape[0])
+
+    def fields(self, lat, lon, valid_date):
+        """[member, len(lat), len(lon)] heights (m) for one valid date."""
+        day = pd.Timestamp(valid_date).normalize()
+        where = np.flatnonzero(self.days == day)
+        if not len(where):
+            raise ValueError(f"{self.model} has no 12 UTC field for {day:%b %d}.")
+        iy, ix = [], []
+        for vals, axis, out in ((lat, self.lat, iy), (lon, self.lon, ix)):
+            for v in vals:
+                k = int(np.argmin(np.abs(axis - float(v))))
+                if abs(axis[k] - float(v)) > 0.01:
+                    raise ValueError(f"The {self.model} file has no grid point at {float(v):g}; "
+                                     "its grid does not match the ERA5 archive.")
+                out.append(k)
+        return self.z[:, where[0]][:, iy][:, :, ix].astype("float64")
+
+
+def load_member_z500(model):
+    """Newest member file for 'WN2', 'EPS' or 'AIFS-ENS' from the bucket (z500/<folder>/latest.json).
+
+    The npz needs z [member, day, lat, lon] (a leading member axis is added if missing),
+    lat, lon and valid_days (days since 1970-01-01). Raises RuntimeError with a plain message.
+    """
+    folder = MEMBER_MODELS[model]
+    base = f"{Z500_BASE}{folder}/"
+    try:
+        meta = requests.get(base + "latest.json", timeout=30)
+        if meta.status_code == 404:
+            raise RuntimeError(f"No {model} 500 hPa file has been published yet "
+                               f"(expected z500/{folder}/latest.json).")
+        meta.raise_for_status()
+        meta = meta.json()
+        resp = requests.get("https://storage.googleapis.com/cawn2/" + meta["file"], timeout=120)
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Could not reach the {model} file in the bucket ({type(exc).__name__}).") from None
+    with np.load(io.BytesIO(resp.content)) as f:
+        z, lat, lon = f["z"], f["lat"], f["lon"]
+        days = pd.to_datetime(f["valid_days"].astype("int64"), unit="D")
+    if z.ndim == 3:
+        z = z[None]
+    if z.ndim != 4 or z.shape[1] != len(days):
+        raise RuntimeError(f"The {model} file has an unexpected shape {z.shape}; expected "
+                           "[member, day, lat, lon].")
+    return MemberZ500(model=model, z=z.astype("float32"), lat=np.asarray(lat, "float64"),
+                      lon=np.asarray(lon, "float64"), days=pd.DatetimeIndex(days),
+                      init=pd.Timestamp(meta["init_utc"]).tz_localize(None))
+
+
+def rank_members(prep, member_fields, domain, n=3, window_days=183, target_date=None,
+                 min_sep_days=5, by="corr"):
+    """Run the analog search separately for each member.
+
+    member_fields: [member, lat, lon] on the archive grid already placed in `prep` coordinates
+    (NaN outside the domain is fine). Returns one DataFrame with a member column added.
+    """
+    frames = []
+    for m in range(member_fields.shape[0]):
+        try:
+            tgt = target_from_field(prep, member_fields[m], target_date)
+            r = rank_analogs(prep, tgt, domain, n=n, window_days=window_days,
+                             target_date=target_date, min_sep_days=min_sep_days, by=by)
+        except ValueError:
+            continue                                      # a member with missing values
+        r.insert(0, "member", m + 1)
+        frames.append(r)
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)
+
+
 # ---------------------------------------------------------------------------
 # Ranking
 # ---------------------------------------------------------------------------

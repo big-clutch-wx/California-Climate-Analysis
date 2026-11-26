@@ -2929,7 +2929,7 @@ elif analysis_mode == "Analog Search":
     c1, c2 = st.columns(2)
     with c1:
         an_source = st.radio("Target pattern",
-                             ["AIFS forecast", "A past date"],
+                             ["AIFS forecast", "A past date", "Ensemble members"],
                              key="an_source", horizontal=True)
     with c2:
         an_res = st.radio("Match grid", ["5 degrees (faster)", "2.5 degrees"],
@@ -2966,6 +2966,51 @@ elif analysis_mode == "Analog Search":
                                  key="an_outcome",
                                  help="Uses the region(s) selected in the sidebar.")
 
+    # ---- shared helpers (MJO labels, station outcomes) -----------------
+    @st.cache_data(ttl=12 * 3600, show_spinner=False)
+    def cached_mjo():
+        try:
+            return analogs.load_mjo()
+        except Exception:  # noqa: BLE001 - labels are optional
+            return None
+
+    # ---- California outcome -------------------------------------------
+    @st.cache_data(show_spinner="Reading station precipitation...")
+    def cached_analog_outcomes(ids, date_keys, ndays):
+        specs = []
+        for dk in date_keys:
+            d0 = pd.Timestamp(dk)
+            specs.append({
+                "start": d0.strftime("%Y-%m-%d"),
+                "end": (d0 + pd.Timedelta(days=ndays - 1)).strftime("%Y-%m-%d"),
+                "label": dk,
+            })
+        daily = query_daily_comparison_series(list(ids), specs)
+        n_ids = len(ids)
+        daily["mean_reporting"] = np.where(
+            daily["station_count"] > 0,
+            daily["daily_precip"] * n_ids / daily["station_count"].clip(lower=1),
+            0.0,
+        )
+        out = daily.groupby("period_label").agg(
+            precip_in=("mean_reporting", "sum"),
+            stations=("station_count", "max"),
+        )
+        out.loc[out["stations"] == 0, "precip_in"] = np.nan
+        return out
+
+    def an_station_scope():
+        """Station ids and a label for the sidebar region selection."""
+        _meta = load_metadata(str(DATA_DIR))
+        _hydro = [r for r in selected_regions if r != "California"]
+        if _hydro:
+            _ids = sorted(build_region_map(tuple(_meta.items()), tuple(_hydro)).keys())
+            return _ids, ", ".join(_hydro)
+        _poly = regions["California"]["polygon"]
+        _ids = sorted(sid for sid, m in _meta.items()
+                      if engine.point_in_polygon((m["lat"], m["lon"]), _poly))
+        return _ids, "California"
+
     # ---- the archive ---------------------------------------------------
     @st.cache_resource(show_spinner="Loading the ERA5 500 hPa archive...")
     def cached_analog_prep(stride, detrend):
@@ -2987,8 +3032,181 @@ elif analysis_mode == "Analog Search":
     an_ys = slice(an_iy[0], an_iy[-1] + 1)
     an_xs = slice(an_ix[0], an_ix[-1] + 1)
 
-    # ---- the target ----------------------------------------------------
     an_today = pd.Timestamp.now(tz="America/Los_Angeles").tz_localize(None).normalize()
+    # ---- ensemble members: one search per member ------------------------
+    if an_source == "Ensemble members":
+        import plotly.graph_objects as go
+
+        st.subheader("Ensemble members")
+        st.caption(
+            "Each member of each ensemble is searched on its own. Every member's closest "
+            "analogs are then scored with the station precipitation for the sidebar region, "
+            "so the spread shows how wet the historical setups behind the ensemble were. "
+            "Members that agree on a pattern pick the same dates."
+        )
+        _ec1, _ec2 = st.columns([3, 1])
+        with _ec2:
+            an_ens_refresh = forecast_refresh_button("an_ens_update_btn")
+        with _ec1:
+            an_models = st.multiselect("Ensembles", list(analogs.MEMBER_MODELS),
+                                       default=list(analogs.MEMBER_MODELS), key="an_ens_models")
+        an_per = st.slider("Analogs per member", 1, 5, 3, key="an_ens_per",
+                           help="Each member's best matches, kept at least the minimum number "
+                                "of days apart.")
+        if not an_models:
+            st.info("Pick at least one ensemble.")
+            st.stop()
+
+        @st.cache_data(ttl=3600, show_spinner=False)
+        def cached_member_run(model, refresh):
+            return analogs.load_member_z500(model)
+
+        an_runs, an_errs = {}, {}
+        with st.spinner("Loading ensemble 500 hPa files..."):
+            for _m in an_models:
+                try:
+                    an_runs[_m] = cached_member_run(_m, an_ens_refresh)
+                except Exception as exc:  # noqa: BLE001
+                    an_errs[_m] = str(exc)
+        for _m, _e in an_errs.items():
+            st.warning(f"{_m}: {_e}")
+        if not an_runs:
+            st.stop()
+
+        _lo = max(r.days[0] for r in an_runs.values())
+        _hi = min(r.days[-1] for r in an_runs.values())
+        if _lo > _hi:
+            st.error("The selected ensembles have no valid dates in common.")
+            st.stop()
+        an_date = pd.Timestamp(st.date_input(
+            "Forecast valid date (12 UTC)",
+            value=min(max(an_today + pd.Timedelta(days=3), _lo), _hi).date(),
+            min_value=_lo.date(), max_value=_hi.date(), key="an_ens_date"))
+        st.caption("  ".join(f"{m}: {r.n_members} members, {r.init:%b %d %H}Z run"
+                             for m, r in an_runs.items()))
+
+        @st.cache_data(show_spinner="Searching the record for every member...", max_entries=8)
+        def cached_member_analogs(model, init_key, date_key, stride, detrend, domain_name,
+                                  window, per, sep, by):
+            run = an_runs[model]
+            prep = an_prep
+            _y = slice(an_iy[0], an_iy[-1] + 1)
+            _x = slice(an_ix[0], an_ix[-1] + 1)
+            sub = run.fields(prep.lat[_y], prep.lon[_x], pd.Timestamp(date_key))
+            full = np.full((sub.shape[0], len(prep.lat), len(prep.lon)), np.nan)
+            full[:, _y, _x] = sub
+            res = analogs.rank_members(prep, full, an_domain, n=per, window_days=window,
+                                       target_date=pd.Timestamp(date_key), min_sep_days=sep, by=by)
+            if not res.empty:
+                res = res.drop(columns=["index"])
+            return res
+
+        _by = "corr" if an_by_label.startswith("Pattern") else "rmse"
+        _frames = []
+        for _m, _r in an_runs.items():
+            try:
+                _res = cached_member_analogs(
+                    _m, str(_r.init), an_date.strftime("%Y-%m-%d"), an_stride, an_detrend,
+                    an_domain_name, an_window, an_per, an_sep, _by)
+            except Exception as exc:  # noqa: BLE001
+                st.warning(f"{_m}: {exc}")
+                continue
+            if len(_res):
+                _res.insert(0, "model", _m)
+                _frames.append(_res)
+        if not _frames:
+            st.warning("No analogs were found. Widen the season window.")
+            st.stop()
+        an_all = pd.concat(_frames, ignore_index=True)
+        an_all["date_key"] = an_all["date"].dt.strftime("%Y-%m-%d")
+
+        an_mjo = cached_mjo()
+        an_all["MJO"] = [analogs.mjo_label(an_mjo, d) for d in an_all["date"]]
+
+        an_ndays = st.radio("Precipitation window", [1, 3], horizontal=True, key="an_ndays",
+                            format_func=lambda v: "Analog day" if v == 1
+                            else "Analog day + next 2 days")
+        try:
+            _ids, _scope = an_station_scope()
+            _oc = cached_analog_outcomes(tuple(_ids), tuple(sorted(an_all["date_key"].unique())),
+                                         an_ndays)
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"Could not read station precipitation: {exc}")
+            st.stop()
+        an_all["precip_in"] = an_all["date_key"].map(_oc["precip_in"])
+        an_all["stations"] = an_all["date_key"].map(_oc["stations"]).fillna(0).astype(int)
+        an_scope = f"{_scope} ({len(_ids)} stations)"
+        _thr = st.number_input("Wet threshold (in)", 0.0, 10.0, 0.25 if an_ndays == 1 else 0.5,
+                               0.05, key="an_ens_thr")
+
+        # ---- summary by model and pooled ----
+        def _summ(g):
+            p = g["precip_in"].dropna()
+            return pd.Series({
+                "Members": g["member"].nunique(),
+                "Analogs": len(p),
+                "Mean (in)": p.mean(), "Median (in)": p.median(),
+                "10th pct": p.quantile(0.1), "90th pct": p.quantile(0.9),
+                f"% above {_thr:g} in": 100 * (p > _thr).mean() if len(p) else np.nan,
+                "Mean pattern corr": g["corr"].mean(),
+            })
+        _rows = {m: _summ(g) for m, g in an_all.groupby("model")}
+        _rows["All ensembles"] = _summ(an_all)
+        summary = pd.DataFrame(_rows).T
+        st.subheader(f"How wet were the analogs? {an_scope}")
+        st.dataframe(summary.round(2), use_container_width=True)
+        st.caption(
+            f"{an_date:%b %d, %Y}, "
+            f"{'analog day' if an_ndays == 1 else 'analog day + next 2 days'}. Each member counts "
+            "its own analogs, so a date chosen by many members counts many times. That weights the "
+            "result toward patterns the ensemble agrees on. Station precipitation is the average "
+            "over stations that reported.")
+
+        # ---- distribution chart ----
+        fig = go.Figure()
+        for _m, g in an_all.groupby("model"):
+            fig.add_trace(go.Box(y=g["precip_in"], name=_m, boxpoints="all", jitter=0.4,
+                                 pointpos=0, marker_size=4, line_width=1.5,
+                                 customdata=np.stack([g["date_key"], g["member"]], axis=1),
+                                 hovertemplate="%{y:.2f} in<br>%{customdata[0]}<br>member "
+                                               "%{customdata[1]}<extra></extra>"))
+        fig.add_hline(y=_thr, line_dash="dot", line_color="gray")
+        fig.update_layout(yaxis_title="Precipitation (in)", showlegend=False,
+                          height=330 if an_phone else 420, margin=dict(l=10, r=10, t=10, b=10))
+        st.plotly_chart(fig, use_container_width=True)
+
+        # ---- most-picked dates ----
+        st.subheader("Dates the members picked most")
+        pk = (an_all.groupby("date_key")
+              .agg(Picks=("member", "size"),
+                   Models=("model", lambda x: ", ".join(sorted(set(x)))),
+                   Corr=("corr", "mean"), MJO=("MJO", "first"),
+                   Precip=("precip_in", "first"), Stations=("stations", "first"))
+              .sort_values(["Picks", "Corr"], ascending=False).head(15).reset_index()
+              .rename(columns={"date_key": "Date", "Corr": "Mean pattern corr",
+                               "Precip": "Precip (in)", "MJO": "MJO (RMM)"}))
+        pk["Mean pattern corr"] = pk["Mean pattern corr"].round(3)
+        pk["Precip (in)"] = pk["Precip (in)"].round(2)
+        st.dataframe(pk, use_container_width=True, hide_index=True)
+
+        with st.expander("Every member's analogs"):
+            det = an_all[["model", "member", "rank", "date_key", "corr", "rmse_m", "MJO",
+                          "precip_in", "stations"]].rename(columns={
+                "model": "Model", "member": "Member", "rank": "Rank", "date_key": "Date",
+                "corr": "Pattern corr", "rmse_m": "RMSE (m)", "MJO": "MJO (RMM)",
+                "precip_in": "Precip (in)", "stations": "Stations reporting"})
+            det["Pattern corr"] = det["Pattern corr"].round(3)
+            det["RMSE (m)"] = det["RMSE (m)"].round(1)
+            det["Precip (in)"] = det["Precip (in)"].round(2)
+            st.dataframe(det, use_container_width=True, hide_index=True)
+            st.download_button("Download member analogs (CSV)", det.to_csv(index=False).encode("utf-8"),
+                               file_name="analog_members.csv", mime="text/csv", key="an_ens_csv")
+        st.caption("Matching uses 500 hPa only, so it knows nothing about moisture. The precipitation "
+                   "is context for the setups, not a rainfall forecast. Early-record station coverage "
+                   "is thin, so check 'Stations reporting'.")
+        st.stop()
+
+    # ---- the target ----------------------------------------------------
     an_exclude = None
     if an_source == "AIFS forecast":
         _ct, _cb = st.columns([3, 1])
@@ -3053,41 +3271,8 @@ elif analysis_mode == "Analog Search":
         st.warning("No days matched. Widen the season window.")
         st.stop()
 
-    # ---- MJO labels ----------------------------------------------------
-    @st.cache_data(ttl=12 * 3600, show_spinner=False)
-    def cached_mjo():
-        try:
-            return analogs.load_mjo()
-        except Exception:  # noqa: BLE001 - labels are optional
-            return None
-
     an_mjo = cached_mjo()
     an_ranked["MJO"] = [analogs.mjo_label(an_mjo, d) for d in an_ranked["date"]]
-
-    # ---- California outcome -------------------------------------------
-    @st.cache_data(show_spinner="Reading station precipitation...")
-    def cached_analog_outcomes(ids, date_keys, ndays):
-        specs = []
-        for dk in date_keys:
-            d0 = pd.Timestamp(dk)
-            specs.append({
-                "start": d0.strftime("%Y-%m-%d"),
-                "end": (d0 + pd.Timedelta(days=ndays - 1)).strftime("%Y-%m-%d"),
-                "label": dk,
-            })
-        daily = query_daily_comparison_series(list(ids), specs)
-        n_ids = len(ids)
-        daily["mean_reporting"] = np.where(
-            daily["station_count"] > 0,
-            daily["daily_precip"] * n_ids / daily["station_count"].clip(lower=1),
-            0.0,
-        )
-        out = daily.groupby("period_label").agg(
-            precip_in=("mean_reporting", "sum"),
-            stations=("station_count", "max"),
-        )
-        out.loc[out["stations"] == 0, "precip_in"] = np.nan
-        return out
 
     an_ndays = 1
     if an_outcome:
@@ -3095,18 +3280,7 @@ elif analysis_mode == "Analog Search":
                             format_func=lambda v: "Analog day" if v == 1
                             else "Analog day + next 2 days")
         try:
-            _meta = load_metadata(str(DATA_DIR))
-            _hydro = [r for r in selected_regions if r != "California"]
-            if _hydro:
-                _ids = sorted(build_region_map(tuple(_meta.items()), tuple(_hydro)).keys())
-                _scope = ", ".join(_hydro)
-            else:
-                _poly = regions["California"]["polygon"]
-                _ids = sorted(
-                    sid for sid, m in _meta.items()
-                    if engine.point_in_polygon((m["lat"], m["lon"]), _poly)
-                )
-                _scope = "California"
+            _ids, _scope = an_station_scope()
             _oc = cached_analog_outcomes(
                 tuple(_ids),
                 tuple(d.strftime("%Y-%m-%d") for d in an_ranked["date"]),
